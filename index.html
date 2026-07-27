@@ -864,6 +864,35 @@
         <input class="field-input-date" id="holiday-work-date" type="date" style="width:100%">
       </div>
       <div class="work-field">
+        <div class="field-label">振替休日の取得</div>
+        <select class="work-input" id="hw-furikyu-type" style="-webkit-appearance:none;appearance:none;cursor:pointer;" onchange="onFurikyuTypeChange()">
+          <option value="none">申請しない</option>
+          <option value="full">全休で1日取得</option>
+          <option value="half">半休を2回に分けて取得</option>
+        </select>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5;">
+          振休日を指定すると、この休日出勤は平日と同じ計算になります。
+        </div>
+      </div>
+      <div id="hw-furikyu-full" style="display:none">
+        <div class="field-label" style="margin-bottom:6px">振休日</div>
+        <input class="field-input-date" id="hw-furikyu-date-full" type="date" style="width:100%">
+      </div>
+      <div id="hw-furikyu-half" style="display:none">
+        <div class="field-label" style="margin-bottom:6px">振休日 1回目</div>
+        <input class="field-input-date" id="hw-furikyu-date-h1" type="date" style="width:100%;margin-bottom:6px">
+        <select class="work-input" id="hw-furikyu-kind-h1" style="-webkit-appearance:none;appearance:none;cursor:pointer;">
+          <option value="振休(午前)">午前休</option>
+          <option value="振休(午後)">午後休</option>
+        </select>
+        <div class="field-label" style="margin:12px 0 6px">振休日 2回目</div>
+        <input class="field-input-date" id="hw-furikyu-date-h2" type="date" style="width:100%;margin-bottom:6px">
+        <select class="work-input" id="hw-furikyu-kind-h2" style="-webkit-appearance:none;appearance:none;cursor:pointer;">
+          <option value="振休(午後)">午後休</option>
+          <option value="振休(午前)">午前休</option>
+        </select>
+      </div>
+      <div class="work-field">
         <div class="field-label">申請理由（必須）</div>
         <textarea class="work-input" id="holiday-work-reason" placeholder="申請理由を記入してください" style="min-height:60px"></textarea>
       </div>
@@ -1096,6 +1125,7 @@
     <div class="modal-info">
       <div class="modal-row"><span class="modal-row-label">氏名</span><span class="modal-row-value jp" id="hwm-name"></span></div>
       <div class="modal-row"><span class="modal-row-label">対象日</span><span class="modal-row-value" id="hwm-date"></span></div>
+      <div class="modal-row"><span class="modal-row-label">振替休日</span><span class="modal-row-value jp" id="hwm-furikyu"></span></div>
       <div class="modal-row"><span class="modal-row-label">申請理由</span><span class="modal-row-value jp" id="hwm-reason"></span></div>
     </div>
     <div style="font-size:12px;color:var(--muted);margin-bottom:20px;line-height:1.6;">
@@ -1612,21 +1642,68 @@
     header.classList.toggle('open', !open);
   }
 
+  // 振休の取得方法に応じて入力欄を出し分け
+  function onFurikyuTypeChange() {
+    const t = document.getElementById('hw-furikyu-type').value;
+    document.getElementById('hw-furikyu-full').style.display = (t === 'full') ? 'block' : 'none';
+    document.getElementById('hw-furikyu-half').style.display = (t === 'half') ? 'block' : 'none';
+  }
+
+  // 振休日の入力を検証して配列化。エラー時は { error } を返す
+  function collectFurikyu() {
+    const type = document.getElementById('hw-furikyu-type').value;
+    if (type === 'full') {
+      const d = document.getElementById('hw-furikyu-date-full').value;
+      if (!d) return { error: '振休日を選択してください' };
+      return { list: [{ date: d.replace(/-/g,'/'), kind: '振休' }] };
+    }
+    if (type === 'half') {
+      const d1 = document.getElementById('hw-furikyu-date-h1').value;
+      const k1 = document.getElementById('hw-furikyu-kind-h1').value;
+      const d2 = document.getElementById('hw-furikyu-date-h2').value;
+      const k2 = document.getElementById('hw-furikyu-kind-h2').value;
+      if (!d1 || !d2) return { error: '振休日を2つとも選択してください' };
+      if (d1 === d2 && k1 === k2) return { error: '同じ日の同じ時間帯は選べません' };
+      return { list: [
+        { date: d1.replace(/-/g,'/'), kind: k1 },
+        { date: d2.replace(/-/g,'/'), kind: k2 }
+      ]};
+    }
+    return { list: [] };
+  }
+
+  // 確認モーダル用の表示文言（例：8/24（午前休）/ 8/25（午後休））
+  function furikyuSummary(list) {
+    if (!list.length) return '申請しない';
+    const label = { '振休': '全休', '振休(午前)': '午前休', '振休(午後)': '午後休' };
+    return list.map(function(f) {
+      const p = f.date.split('/');
+      return Number(p[1]) + '/' + Number(p[2]) + '（' + label[f.kind] + '）';
+    }).join(' / ');
+  }
+
   function openHolidayWorkModal() {
     if (checkPresident()) return;
     const dateVal  = document.getElementById('holiday-work-date').value;
     const reason   = document.getElementById('holiday-work-reason').value.trim();
     if (!dateVal)  { showToast('対象日付を選択してください'); return; }
     if (!reason)   { showToast('申請理由を入力してください'); return; }
-    document.getElementById('hwm-name').textContent   = currentUser.name;
-    document.getElementById('hwm-date').textContent   = dateVal.replace(/-/g,'/');
-    document.getElementById('hwm-reason').textContent = reason;
+    const furikyu = collectFurikyu();
+    if (furikyu.error) { showToast(furikyu.error); return; }
+    if (furikyu.list.some(function(f) { return f.date === dateVal.replace(/-/g,'/'); })) {
+      showToast('振休日に休日出勤日と同じ日は指定できません'); return;
+    }
+    document.getElementById('hwm-name').textContent    = currentUser.name;
+    document.getElementById('hwm-date').textContent    = dateVal.replace(/-/g,'/');
+    document.getElementById('hwm-furikyu').textContent = furikyuSummary(furikyu.list);
+    document.getElementById('hwm-reason').textContent  = reason;
     document.getElementById('holiday-work-modal').classList.add('show');
   }
 
   async function doHolidayWork() {
     const dateVal = document.getElementById('holiday-work-date').value;
     const reason  = document.getElementById('holiday-work-reason').value.trim();
+    const furikyu = collectFurikyu();
     closeModal('holiday-work-modal');
     showToast('休日出勤を申請中...');
     try {
@@ -1637,6 +1714,7 @@
           empId:       currentUser.id,
           empName:     currentUser.name,
           targetDate:  dateVal.replace(/-/g,'/'),
+          furikyu:     furikyu.list || [],
           reason,
         })
       });
@@ -1648,8 +1726,13 @@
     } catch(err) {
       showToast('⚠️ 通信エラー。後で再送してください。');
     }
-    document.getElementById('holiday-work-date').value   = '';
-    document.getElementById('holiday-work-reason').value = '';
+    document.getElementById('holiday-work-date').value    = '';
+    document.getElementById('holiday-work-reason').value  = '';
+    document.getElementById('hw-furikyu-type').value      = 'none';
+    document.getElementById('hw-furikyu-date-full').value = '';
+    document.getElementById('hw-furikyu-date-h1').value   = '';
+    document.getElementById('hw-furikyu-date-h2').value   = '';
+    onFurikyuTypeChange();
   }
 
   // ======== 在宅申請 ========
