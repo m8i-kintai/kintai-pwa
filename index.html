@@ -2323,60 +2323,11 @@
       setOvertimeAppliedUI();
     } else {
       resetOvertimeUI();
-      checkOvertimeReminder();
     }
   }
 
-  // ======== 勤怠リマインダー（出勤から8h10m経過・退勤未打刻・残業申請なし → メール送信） ========
-  function getReminderSentToday(empId) {
-    const saved = localStorage.getItem('reminderSent_' + empId);
-    if (!saved) return false;
-    const state = JSON.parse(saved);
-    const now = new Date();
-    const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
-    return state.date === today;
-  }
-
-  function setReminderSentToday(empId) {
-    const now = new Date();
-    const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
-    localStorage.setItem('reminderSent_' + empId, JSON.stringify({ date: today }));
-  }
-
-  async function checkOvertimeReminder() {
-    if (!currentUser) return;
-    if (overtimeApplied) return;
-    if (document.getElementById('btn-checkout').disabled) return; // 退勤済み
-
-    // 出勤打刻時刻を取得
-    const checkinTxt = document.getElementById('status-checkin').textContent;
-    if (checkinTxt === '──') return; // 出勤打刻なし
-
-    // 出勤から8時間30分経過しているか確認
-    const [h, m] = checkinTxt.split(':').map(Number);
-    const today = new Date();
-    const checkinTime = new Date(today);
-    checkinTime.setHours(h, m, 0, 0);
-    const reminderTime = new Date(checkinTime.getTime() + (8 * 60 + 10) * 60 * 1000);
-    if (new Date() < reminderTime) return; // まだ8時間10分経過していない
-
-    // 本日すでに送信済みなら無視
-    if (getReminderSentToday(currentUser.id)) return;
-
-    // メール送信リクエスト
-    setReminderSentToday(currentUser.id); // 先にフラグを立てて二重送信防止
-    try {
-      await fetch(FORM_GAS_URL, {
-        method: 'POST',
-        body: JSON.stringify({
-          requestType: 'reminder',
-          empId:       currentUser.id,
-          empName:     currentUser.name,
-        })
-      });
-    } catch(e) { /* 通信失敗時はフラグをリセットしない（再送防止） */ }
-  }
-  setInterval(checkOvertimeReminder, 60000);
+  // 勤怠リマインダーはGAS側の定時トリガー(sendKintaiReminders)で送信する。
+  // アプリを閉じていても届くよう、クライアント側からは送らない。
 
   function openOvertimeModal() {
     if (!currentUser) { showToast('ログインしてください'); return; }
