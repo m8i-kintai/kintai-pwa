@@ -1330,14 +1330,37 @@
     const err = document.getElementById('login-error');
     const btn = document.querySelector('.login-btn');
 
-    if (!id) { err.classList.add('show'); return; }
+    // 失敗の理由が分かるようメッセージを出し分ける
+    // （従来はどの失敗でも「社員番号が見つかりません」と表示していた）
+    const showLoginError = (msg) => {
+      err.textContent = msg;
+      err.classList.remove('show');
+      void err.offsetWidth;
+      err.classList.add('show');
+    };
+
+    if (!id) { showLoginError('社員番号を入力してください'); return; }
 
     btn.textContent = '確認中...';
     btn.disabled = true;
 
     try {
-      const res  = await fetch(GAS_URL + '?empId=' + encodeURIComponent(id));
-      const data = await res.json();
+      let res;
+      try {
+        res = await fetch(GAS_URL + '?empId=' + encodeURIComponent(id));
+      } catch(netErr) {
+        showLoginError('通信に失敗しました。電波状況をご確認のうえ、もう一度お試しください');
+        return;
+      }
+
+      let data;
+      try {
+        data = await res.json();
+      } catch(parseErr) {
+        // サーバーがJSON以外（混雑時のエラーページなど）を返した場合
+        showLoginError('サーバーが混み合っています。5分ほど時間をおいて、もう一度お試しください');
+        return;
+      }
 
       if (data.status === 'ok') {
         currentUser = { id: data.empId, name: data.empName, dept: data.dept, flag: data.flag || 1 };
@@ -1354,14 +1377,11 @@
         fetchTodayPunchStatus();  // サーバーから当日打刻状況を取得
         restoreSavedSelections();  // 種別・稼働部門を復元
       } else {
-        err.classList.remove('show');
-        void err.offsetWidth;
-        err.classList.add('show');
+        // GASが正常に応答したうえで該当なしと返した場合のみ、番号の誤りを案内する
+        showLoginError('社員番号が見つかりません');
       }
     } catch(e) {
-      err.classList.remove('show');
-      void err.offsetWidth;
-      err.classList.add('show');
+      showLoginError('エラーが発生しました。もう一度お試しください');
     } finally {
       btn.textContent = 'ログイン';
       btn.disabled = false;
