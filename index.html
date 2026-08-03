@@ -135,6 +135,18 @@
     font-family: 'Noto Sans JP', sans-serif; font-size: 12px; font-weight: 600;
     padding: 7px 12px; cursor: pointer; white-space: nowrap;
   }
+  .guide-btn {
+    background: var(--surface); border: 1px solid var(--border2);
+    border-radius: 8px; color: var(--muted);
+    font-family: 'Noto Sans JP', sans-serif; font-size: 12px; font-weight: 600;
+    padding: 7px 12px; cursor: pointer; white-space: nowrap;
+    text-decoration: none; display: inline-block;
+  }
+  .guide-link {
+    display: block; text-align: center; margin-top: 18px;
+    color: var(--muted); font-size: 12.5px; text-decoration: none;
+  }
+  .guide-link:hover { color: var(--accent2); }
   /* 申請画面 */
   #apply-screen {
     display: none; flex-direction: column;
@@ -477,6 +489,7 @@
 
     <div class="login-error" id="login-error">社員番号が見つかりません</div>
     <button class="login-btn" onclick="doLogin()">ログイン</button>
+    <a class="guide-link" href="guide.html">📖 はじめての方はこちら（使い方ガイド）</a>
   </div>
 </div>
 
@@ -494,6 +507,7 @@
       <div class="user-code" id="disp-code"></div>
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
+      <a class="guide-btn" href="guide.html">使い方ガイド</a>
       <button class="apply-screen-btn" onclick="showApplyScreen()">各種申請</button>
       <button class="logout-btn" onclick="doLogout()">ログアウト</button>
     </div>
@@ -741,7 +755,7 @@
         </div>
       </div>
       <div>
-        <div class="field-label" style="margin-bottom:6px">作業内容・理由（任意）</div>
+        <div class="field-label" style="margin-bottom:6px">作業内容・理由（必須）</div>
         <textarea class="work-input" id="overtime-reason" placeholder="例：顧客対応、月次報告書作成など" style="min-height:70px"></textarea>
       </div>
     </div>
@@ -2346,6 +2360,7 @@
     const reason    = document.getElementById('overtime-reason').value.trim();
 
     if (!untilTime) { showToast('残業終了時間を入力してください'); return; }
+    if (!reason)    { showToast('作業内容・理由を入力してください'); return; }
 
     closeModal('overtime-modal');
     showToast('残業申請を送信中...');
