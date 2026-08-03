@@ -1056,8 +1056,8 @@
         </div>
       </div>
       <div>
-        <div class="field-label" style="margin-bottom:6px">修正時間</div>
-        <input class="field-input" id="correct-time" type="time" style="font-size:16px;width:100%">
+        <div class="field-label" style="margin-bottom:6px">修正時間（必須）</div>
+        <input class="field-input" id="correct-time" type="time" required style="font-size:16px;width:100%">
       </div>
       <div class="work-field">
         <div class="field-label">修正理由（必須）</div>
@@ -1962,6 +1962,12 @@
     const dateVal  = document.getElementById('correct-date').value;
     const timeVal  = document.getElementById('correct-time').value;
     const reason   = document.getElementById('correct-reason').value.trim();
+    // 修正時間が空のまま送るとGAS側で NaN:NaN:00 が書き込まれるため、ここでも必ず弾く
+    if (!timeVal) {
+      closeModal('correct-modal');
+      showToast('修正時間を入力してください');
+      return;
+    }
     closeModal('correct-modal');
     showToast('打刻修正を申請中...');
     try {
