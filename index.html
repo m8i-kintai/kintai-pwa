@@ -1509,11 +1509,10 @@
     // ── 打刻時刻補正 ──────────────────────────
     const punchTime = new Date(now);
     if (label === '出勤') {
-      if (selectedType === '早出' || selectedType === 'フレックス') {
-        // 早出・フレックス：15分単位切り捨て（9:00補正なし）
-        punchTime.setMinutes(Math.floor(punchTime.getMinutes() / 15) * 15, 0, 0);
-      } else {
-        // その他：9:00より前なら9:00に補正
+      // 全種別：まず15分単位で切り捨て
+      punchTime.setMinutes(Math.floor(punchTime.getMinutes() / 15) * 15, 0, 0);
+      // 早出・フレックス以外：9:00より前なら9:00に補正
+      if (selectedType !== '早出' && selectedType !== 'フレックス') {
         const nine = new Date(now);
         nine.setHours(9, 0, 0, 0);
         if (punchTime < nine) {
