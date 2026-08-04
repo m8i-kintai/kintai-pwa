@@ -1599,7 +1599,7 @@
         if (currentUser) saveOvertimeState(currentUser.id, false);
         resetOvertimeUI();
         // 呼び出し用の控えを保存（この退勤を起点に、翌朝5:00まで再出勤できる）
-        saveCallbackShift(d, now.getTime(), breakMins, moveMins, dept, cont2);
+        saveCallbackShift(d, now.getTime(), breakMins, moveMins, dept, cont2, selectedType);
         updateReworkAvailability();
       }
     } catch(e) {
@@ -2131,7 +2131,7 @@
     return new Date(p[0], p[1] - 1, p[2] + 1, 5, 0, 0, 0).getTime();
   }
 
-  function saveCallbackShift(workDateStr, checkoutMs, breakMins, moveMins, dept, content) {
+  function saveCallbackShift(workDateStr, checkoutMs, breakMins, moveMins, dept, content, type) {
     if (!currentUser) return;
     localStorage.setItem(CALLBACK_KEY(currentUser.id), JSON.stringify({
       workDate:    workDateStr,
@@ -2140,6 +2140,7 @@
       moveMins:    moveMins  || 0,
       dept:        dept    || '',
       content:     content || '',
+      type:        type    || '通常',   // フォームの種別は必須。再出勤の退勤送信で使う
       reCheckedIn: false,               // 再出勤の「出勤」を押したか
       expiresAt:   callbackExpiry(workDateStr)
     }));
@@ -2334,7 +2335,7 @@
       const fd = new FormData();
       fd.append(FORM_ENTRIES.empId,     currentUser.id);
       fd.append(FORM_ENTRIES.action,    '退勤');
-      fd.append(FORM_ENTRIES.type,      '');                 // 種別(C)・出勤(D)は退勤処理では触らないため空でよい
+      fd.append(FORM_ENTRIES.type,      rec.type || '通常');  // フォームの種別は必須。空だと送信が拒否されるため控えの種別を送る（退勤処理はC列を書き換えない）
       fd.append(FORM_ENTRIES.time,      st.label + ':00');   // 例 "27:00:00"
       fd.append(FORM_ENTRIES.date,      rec.workDate);       // ★今日ではなく勤務日に書く
       fd.append(FORM_ENTRIES.dept,      rec.dept || '');     // 初回退勤の稼働部門を引き継ぐ
@@ -2351,7 +2352,7 @@
       addHistory('退勤（再出勤）', '', st.label, '#e05a5a');
 
       // 次の呼び出しに備えて控えを更新（今回の退勤を新たな起点にする）
-      saveCallbackShift(rec.workDate, now.getTime(), totalMins, rec.moveMins, rec.dept, rec.content);
+      saveCallbackShift(rec.workDate, now.getTime(), totalMins, rec.moveMins, rec.dept, rec.content, rec.type);
       exitReworkMode();
       updateReworkAvailability();
       const md = rec.workDate.split('/');
