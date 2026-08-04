@@ -515,7 +515,15 @@
       <div class="user-name" id="disp-name"></div>
       <div class="user-code" id="disp-code"></div>
     </div>
-    <div style="display:flex;align-items:center;gap:10px;">
+    <div style="display:flex;align-items:center;gap:9px;">
+      <!-- 再出勤トグル：呼び出し用の控えがあるときだけ表示される -->
+      <label id="rework-toggle-wrap" style="display:none;flex-direction:column;align-items:center;gap:2px;" title="呼び出しで再度出勤するときにON">
+        <span style="font-size:9.5px;color:var(--muted);white-space:nowrap;">再出勤</span>
+        <span class="toggle-switch">
+          <input type="checkbox" id="rework-toggle" onchange="onReworkToggle(this)">
+          <span class="toggle-slider"></span>
+        </span>
+      </label>
       <button class="apply-screen-btn" onclick="showApplyScreen()">各種申請</button>
       <button class="logout-btn" onclick="doLogout()">ログアウト</button>
     </div>
@@ -538,6 +546,8 @@
         <div class="status-value" id="status-checkout">──</div>
       </div>
     </div>
+    <!-- 再出勤モード中に対象の勤務日を知らせる -->
+    <div id="rework-note" style="display:none;font-size:12px;color:var(--accent2);text-align:center;margin-top:8px;line-height:1.5;"></div>
   </div>
 
   <!-- 勤務種別 + 在宅トグル -->
@@ -687,12 +697,34 @@
         <div class="field-label" style="margin-bottom:6px">想定残業時間（何時まで）</div>
         <div style="display:flex;gap:8px;align-items:center;">
           <select class="work-input" id="overtime-until-h" style="-webkit-appearance:none;appearance:none;cursor:pointer;flex:1;text-align:center;">
+            <option value="10">10</option>
+            <option value="11">11</option>
+            <option value="12">12</option>
+            <option value="13">13</option>
+            <option value="14">14</option>
+            <option value="15">15</option>
+            <option value="16">16</option>
+            <option value="17">17</option>
             <option value="18">18</option>
             <option value="19" selected>19</option>
             <option value="20">20</option>
             <option value="21">21</option>
             <option value="22">22</option>
             <option value="23">23</option>
+            <option value="24">24</option>
+            <option value="25">25</option>
+            <option value="26">26</option>
+            <option value="27">27</option>
+            <option value="28">28</option>
+            <option value="29">29</option>
+            <option value="30">30</option>
+            <option value="31">31</option>
+            <option value="32">32</option>
+            <option value="33">33</option>
+            <option value="34">34</option>
+            <option value="35">35</option>
+            <option value="36">36</option>
+            <option value="37">37</option>
           </select>
           <span style="color:var(--muted);font-size:20px;font-weight:700;">:</span>
           <select class="work-input" id="overtime-until-m" style="-webkit-appearance:none;appearance:none;cursor:pointer;flex:1;text-align:center;">
@@ -1143,6 +1175,49 @@
   </div>
 </div>
 
+<!-- 再出勤（呼び出し）確認モーダル -->
+<div class="modal-backdrop" id="rework-modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">再出勤の確認</div>
+    <div class="modal-sub">呼び出しによる再出勤を記録します</div>
+    <div class="modal-info">
+      <div class="modal-row"><span class="modal-row-label">対象の勤務日</span><span class="modal-row-value" id="rw-date"></span></div>
+      <div class="modal-row"><span class="modal-row-label">前回の退勤</span><span class="modal-row-value" id="rw-lastout"></span></div>
+      <div class="modal-row"><span class="modal-row-label">再出勤時刻</span><span class="modal-row-value" id="rw-now"></span></div>
+      <div class="modal-row"><span class="modal-row-label">規定外休憩へ加算</span><span class="modal-row-value" id="rw-gap"></span></div>
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:20px;line-height:1.6;">
+      前回の退勤から今までの空き時間を規定外休憩に加算し、退勤ボタンを押せるようにします。
+    </div>
+    <div class="modal-btns">
+      <button class="modal-cancel" onclick="closeModal('rework-modal')">キャンセル</button>
+      <button class="modal-confirm green" onclick="doReworkCheckin()">再出勤する</button>
+    </div>
+  </div>
+</div>
+
+<!-- 再出勤の退勤 確認モーダル -->
+<div class="modal-backdrop" id="rework-out-modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">退勤の確認（再出勤分）</div>
+    <div class="modal-sub">対象の勤務日に退勤を記録します</div>
+    <div class="modal-info">
+      <div class="modal-row"><span class="modal-row-label">対象の勤務日</span><span class="modal-row-value" id="rwo-date"></span></div>
+      <div class="modal-row"><span class="modal-row-label">退勤時刻</span><span class="modal-row-value" id="rwo-time"></span></div>
+      <div class="modal-row"><span class="modal-row-label">規定外休憩 合計</span><span class="modal-row-value" id="rwo-break"></span></div>
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:20px;line-height:1.6;">
+      0時を過ぎた退勤は 25:00・26:00… のように表記され、勤務日の続きとして記録されます。
+    </div>
+    <div class="modal-btns">
+      <button class="modal-cancel" onclick="closeModal('rework-out-modal')">キャンセル</button>
+      <button class="modal-confirm red" onclick="doReworkCheckout()">退勤する</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -1325,6 +1400,7 @@
         loadOvertimeStateOnLogin();  // 残業申請状態を復元
         fetchTodayPunchStatus();  // サーバーから当日打刻状況を取得
         restoreSavedSelections();  // 種別・稼働部門を復元
+        updateReworkAvailability();  // 呼び出し用の控えがあれば再出勤トグルを表示
       } else {
         // GASが正常に応答したうえで該当なしと返した場合のみ、番号の誤りを案内する
         showLoginError('社員番号が見つかりません');
@@ -1348,6 +1424,11 @@
   }
 
   function doLogout() {
+    // 再出勤モードを解除し、トグルを隠す（次のログインで判定し直す）
+    exitReworkMode();
+    const rwWrap = document.getElementById('rework-toggle-wrap');
+    if (rwWrap) rwWrap.style.display = 'none';
+    document.getElementById('break-time').textContent = '──';
     currentUser = null; selectedType = ''; selectedApplyType = null; isRemoteWork = false;
     document.getElementById('apply-screen').style.display = 'none';
     const sel = document.getElementById('type-select');
@@ -1391,6 +1472,9 @@
 
   function openPunchModal(action) {
     if (checkPresident()) return;
+    // 再出勤モードでは専用の確認モーダルへ振り分ける（通常の打刻とは別処理）
+    if (reworkMode && action === 'checkin')  { openReworkModal();    return; }
+    if (reworkMode && action === 'checkout') { openReworkOutModal(); return; }
     if (action === 'checkin' && !selectedType) { showToast('種別を選択してください'); return; }
     const dept = document.getElementById('work-dept').value;
     const cont = document.getElementById('work-content').value.trim();
@@ -1504,11 +1588,19 @@
       }
       showToast(`${label}打刻しました（${t.slice(0,5)}）`);
       savePunchState();
+      if (label === '出勤') {
+        // 新しい勤務の開始 → 前日以前の呼び出し用の控えは破棄する
+        clearCallbackShift();
+        updateReworkAvailability();
+      }
       // 退勤打刻時は残業申請状態をリセット
       if (label === '退勤') {
         overtimeApplied = false;
         if (currentUser) saveOvertimeState(currentUser.id, false);
         resetOvertimeUI();
+        // 呼び出し用の控えを保存（この退勤を起点に、翌朝5:00まで再出勤できる）
+        saveCallbackShift(d, now.getTime(), breakMins, moveMins, dept, cont2);
+        updateReworkAvailability();
       }
     } catch(e) {
       showToast('⚠️ 通信エラー。後で再送してください。');
@@ -2021,6 +2113,254 @@
     setTimeout(() => t.classList.remove('show'), 2800);
   }
 
+  // ======== 再出勤（呼び出し対応） ========
+  // 一度退勤した後、同日中の呼び出しで再度出勤・退勤するための仕組み。
+  //  ・退勤時に「呼び出し用の控え」を保存（勤務日の翌朝5:00まで有効）
+  //  ・再出勤トグルON → 出勤ボタンを再度有効化
+  //  ・再出勤の「出勤」 → 前回退勤〜今の空き時間を規定外休憩に加算（サーバーには送らない）
+  //  ・再出勤の「退勤」 → 勤務日の行に、24時超え表記（例27:00）で退勤を書き込む
+  let reworkMode      = false;
+  let reworkWorkDate  = null;   // 対象の勤務日 "YYYY/MM/DD"
+  let reworkGapBaseMs = null;   // 空き時間の起点（前回退勤のエポックms）
+
+  const CALLBACK_KEY = id => 'callbackShift_' + id;
+
+  // 勤務日の翌朝5:00（失効時刻）を返す
+  function callbackExpiry(workDateStr) {
+    const p = workDateStr.split('/').map(Number);
+    return new Date(p[0], p[1] - 1, p[2] + 1, 5, 0, 0, 0).getTime();
+  }
+
+  function saveCallbackShift(workDateStr, checkoutMs, breakMins, moveMins, dept, content) {
+    if (!currentUser) return;
+    localStorage.setItem(CALLBACK_KEY(currentUser.id), JSON.stringify({
+      workDate:    workDateStr,
+      checkoutMs:  checkoutMs,
+      breakMins:   breakMins || 0,
+      moveMins:    moveMins  || 0,
+      dept:        dept    || '',
+      content:     content || '',
+      reCheckedIn: false,               // 再出勤の「出勤」を押したか
+      expiresAt:   callbackExpiry(workDateStr)
+    }));
+  }
+
+  function loadCallbackShift() {
+    if (!currentUser) return null;
+    const raw = localStorage.getItem(CALLBACK_KEY(currentUser.id));
+    if (!raw) return null;
+    let rec; try { rec = JSON.parse(raw); } catch(e) { return null; }
+    if (!rec || Date.now() > rec.expiresAt) {   // 翌朝5:00を過ぎたら無効
+      localStorage.removeItem(CALLBACK_KEY(currentUser.id));
+      return null;
+    }
+    return rec;
+  }
+
+  function clearCallbackShift() {
+    if (currentUser) localStorage.removeItem(CALLBACK_KEY(currentUser.id));
+  }
+
+  // 規定外休憩の合計（分）を表示テキストから読む
+  function currentBreakMins() {
+    const txt = document.getElementById('break-time').textContent;
+    return txt.includes('計') ? (parseInt(txt.replace('計 ', '').replace('分', '')) || 0) : 0;
+  }
+  function setBreakMins(mins) {
+    document.getElementById('break-time').textContent = mins > 0 ? ('計 ' + mins + '分') : '──';
+  }
+  // 時間外移動の合計（分）を表示テキストから読む
+  function currentMoveMins() {
+    const txt = document.getElementById('move-time').textContent;
+    return txt.includes('計') ? (parseInt(txt.replace('計 ', '').replace('分', '')) || 0) : 0;
+  }
+
+  // 有効な控えがあるときだけ再出勤トグルを表示する
+  function updateReworkAvailability() {
+    const wrap = document.getElementById('rework-toggle-wrap');
+    if (!wrap) return;
+    const rec = loadCallbackShift();
+    wrap.style.display = rec ? 'flex' : 'none';
+    if (!rec) {
+      const tg = document.getElementById('rework-toggle');
+      if (tg && tg.checked) { tg.checked = false; exitReworkMode(); }
+    }
+  }
+
+  function onReworkToggle(el) {
+    if (el.checked) enterReworkMode();
+    else            exitReworkMode();
+  }
+
+  function enterReworkMode() {
+    const rec = loadCallbackShift();
+    if (!rec) {
+      showToast('再出勤できる勤務がありません');
+      document.getElementById('rework-toggle').checked = false;
+      return;
+    }
+    reworkMode      = true;
+    reworkWorkDate  = rec.workDate;
+    reworkGapBaseMs = rec.checkoutMs;
+    // 休憩合計を控えから復元（0時をまたいで画面がリセットされても正しく加算できる）
+    setBreakMins(rec.breakMins || 0);
+
+    const md   = rec.workDate.split('/');
+    const note = document.getElementById('rework-note');
+
+    if (rec.reCheckedIn) {
+      // すでに再出勤の「出勤」まで済み（＝再読み込み後）→ 退勤だけ押せる状態にする
+      document.getElementById('btn-checkin').disabled  = true;
+      document.getElementById('btn-checkout').disabled = false;
+      note.textContent = Number(md[1]) + '/' + Number(md[2]) + ' の勤務に再出勤中です。退勤を押して確定してください';
+    } else {
+      // これから再出勤 → 出勤ボタンを有効化、退勤は出勤するまで不可
+      document.getElementById('btn-checkin').disabled  = false;
+      document.getElementById('btn-checkout').disabled = true;
+      note.textContent = Number(md[1]) + '/' + Number(md[2]) + ' の勤務に再出勤します（出勤→退勤の順に押してください）';
+    }
+    note.style.display = 'block';
+    showToast('再出勤モードにしました');
+  }
+
+  function exitReworkMode() {
+    reworkMode      = false;
+    reworkWorkDate  = null;
+    reworkGapBaseMs = null;
+    const note = document.getElementById('rework-note');
+    if (note) note.style.display = 'none';
+    const tg = document.getElementById('rework-toggle');
+    if (tg) tg.checked = false;
+  }
+
+  // 「時間○分」の表示用文字列
+  function fmtDuration(mins) {
+    const h = Math.floor(mins / 60), m = mins % 60;
+    return (h ? h + '時間' : '') + (m ? m + '分' : '') || '0分';
+  }
+
+  // 再出勤の「出勤」確認モーダルを開く
+  function openReworkModal() {
+    const rec = loadCallbackShift();
+    if (!rec) { showToast('再出勤の記録が見つかりません'); exitReworkMode(); updateReworkAvailability(); return; }
+    const now    = new Date();
+    const gapMin = Math.max(0, Math.round((now.getTime() - rec.checkoutMs) / 60000));
+    const md     = rec.workDate.split('/');
+    const lastOut = new Date(rec.checkoutMs);
+    const pad = n => String(n).padStart(2, '0');
+    document.getElementById('rw-date').textContent    = Number(md[1]) + '/' + Number(md[2]);
+    document.getElementById('rw-lastout').textContent = pad(lastOut.getHours()) + ':' + pad(lastOut.getMinutes());
+    document.getElementById('rw-now').textContent     = pad(now.getHours()) + ':' + pad(now.getMinutes());
+    document.getElementById('rw-gap').textContent     = fmtDuration(gapMin);
+    document.getElementById('rework-modal').classList.add('show');
+  }
+
+  // 再出勤の「出勤」確定：空き時間を規定外休憩へ加算（サーバーには送らない）
+  function doReworkCheckin() {
+    const rec = loadCallbackShift();
+    if (!rec) { closeModal('rework-modal'); showToast('再出勤の記録が見つかりません'); exitReworkMode(); updateReworkAvailability(); return; }
+    const now    = new Date();
+    const gapMin = Math.max(0, Math.round((now.getTime() - rec.checkoutMs) / 60000));
+    const total  = currentBreakMins() + gapMin;
+    setBreakMins(total);
+
+    // 控えを更新：休憩合計を確定し、「出勤済み」にする（再読み込みしても二重加算しない）
+    rec.breakMins   = total;
+    rec.reCheckedIn = true;
+    localStorage.setItem(CALLBACK_KEY(currentUser.id), JSON.stringify(rec));
+
+    document.getElementById('btn-checkin').disabled  = true;
+    document.getElementById('btn-checkout').disabled = false;
+    addHistory('再出勤', '', now.toLocaleTimeString('ja-JP'), '#3dba7a');
+    const md = rec.workDate.split('/');
+    document.getElementById('rework-note').textContent =
+      Number(md[1]) + '/' + Number(md[2]) + ' の勤務に再出勤中です。退勤を押して確定してください';
+    closeModal('rework-modal');
+    showToast('再出勤しました（空き ' + fmtDuration(gapMin) + ' を休憩に加算）');
+    savePunchState();
+  }
+
+  // 再出勤の「退勤」確認モーダルを開く
+  function openReworkOutModal() {
+    const rec = loadCallbackShift();
+    if (!rec) { showToast('再出勤の記録が見つかりません'); exitReworkMode(); updateReworkAvailability(); return; }
+    const md = rec.workDate.split('/');
+    document.getElementById('rwo-date').textContent  = Number(md[1]) + '/' + Number(md[2]);
+    document.getElementById('rwo-time').textContent  = reworkSheetTimeLabel(new Date(), rec.workDate);
+    document.getElementById('rwo-break').textContent = fmtDuration(currentBreakMins());
+    document.getElementById('rework-out-modal').classList.add('show');
+  }
+
+  // 退勤時刻を「勤務日の0時から数えた時刻」に整えて返す（15分切り上げ＋24時超え表記）
+  // 戻り値 { hour, min, label } … hour は 24以上になり得る
+  function reworkSheetTime(now, workDateStr) {
+    const pt  = new Date(now);
+    const rem = pt.getMinutes() % 15;
+    if (rem !== 0) pt.setMinutes(pt.getMinutes() + (15 - rem), 0, 0);
+    else           pt.setSeconds(0, 0);
+    const wd       = workDateStr.split('/').map(Number);
+    const workMid  = new Date(wd[0], wd[1] - 1, wd[2]).getTime();
+    const nowMid   = new Date(pt.getFullYear(), pt.getMonth(), pt.getDate()).getTime();
+    const daysDiff = Math.round((nowMid - workMid) / 86400000);
+    const hour     = pt.getHours() + 24 * daysDiff;
+    const min      = pt.getMinutes();
+    const pad = n => String(n).padStart(2, '0');
+    return { hour: hour, min: min, label: pad(hour) + ':' + pad(min) };
+  }
+  function reworkSheetTimeLabel(now, workDateStr) {
+    return reworkSheetTime(now, workDateStr).label;
+  }
+
+  // 再出勤の「退勤」確定：勤務日の行に、24時超え表記で退勤を書き込む
+  async function doReworkCheckout() {
+    const rec = loadCallbackShift();
+    if (!rec) { closeModal('rework-out-modal'); showToast('再出勤の記録が見つかりません'); exitReworkMode(); updateReworkAvailability(); return; }
+    const now       = new Date();
+    const st        = reworkSheetTime(now, rec.workDate);   // { hour, min, label }
+    const totalMins = currentBreakMins();
+
+    let lat = '', lng = '';
+    try {
+      const pos = await new Promise((resolve, reject) =>
+        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 })
+      );
+      lat = pos.coords.latitude.toFixed(6);
+      lng = pos.coords.longitude.toFixed(6);
+    } catch(e) { /* 位置情報は任意 */ }
+
+    closeModal('rework-out-modal');
+    showToast('退勤を記録中...');
+    try {
+      const fd = new FormData();
+      fd.append(FORM_ENTRIES.empId,     currentUser.id);
+      fd.append(FORM_ENTRIES.action,    '退勤');
+      fd.append(FORM_ENTRIES.type,      '');                 // 種別(C)・出勤(D)は退勤処理では触らないため空でよい
+      fd.append(FORM_ENTRIES.time,      st.label + ':00');   // 例 "27:00:00"
+      fd.append(FORM_ENTRIES.date,      rec.workDate);       // ★今日ではなく勤務日に書く
+      fd.append(FORM_ENTRIES.dept,      rec.dept || '');     // 初回退勤の稼働部門を引き継ぐ
+      fd.append(FORM_ENTRIES.content,   rec.content || '');  // 初回退勤の実施内容を引き継ぐ
+      fd.append(FORM_ENTRIES.breakMins, Math.floor(totalMins / 15) * 0.25);
+      fd.append(FORM_ENTRIES.moveMins,  Math.floor((rec.moveMins || 0) / 15) * 0.25);
+      fd.append(FORM_ENTRIES.lat,       lat);
+      fd.append(FORM_ENTRIES.lng,       lng);
+      await fetch(FORM_URL, { method: 'POST', mode: 'no-cors', body: fd });
+
+      document.getElementById('status-checkout').textContent = st.label;
+      document.getElementById('status-checkout').className   = 'status-value recorded';
+      document.getElementById('btn-checkout').disabled       = true;
+      addHistory('退勤（再出勤）', '', st.label, '#e05a5a');
+
+      // 次の呼び出しに備えて控えを更新（今回の退勤を新たな起点にする）
+      saveCallbackShift(rec.workDate, now.getTime(), totalMins, rec.moveMins, rec.dept, rec.content);
+      exitReworkMode();
+      updateReworkAvailability();
+      const md = rec.workDate.split('/');
+      showToast('退勤しました（' + Number(md[1]) + '/' + Number(md[2]) + ' 分 / ' + st.label + '）');
+    } catch(e) {
+      showToast('⚠️ 通信エラー。後で再送してください。');
+    }
+  }
+
   // ======== 規定外休憩 ========
   let breakOn = false;
   let breakStart = null;
@@ -2049,9 +2389,11 @@
       breakSessions.push({ start: breakStart, end: now, mins });
       card.classList.remove('on-break');
       pill.checked = false;
-      timeEl.textContent = '計 ' + mins + '分';
+      // 1日に複数回休憩を取っても合計されるよう、これまでの合計に加算する
+      const total = currentBreakMins() + mins;
+      timeEl.textContent = '計 ' + total + '分';
       addHistory('規定外休憩 終了', mins + '分', t, '#e5a84b');
-      showToast('規定外休憩を終了しました（' + mins + '分）');
+      showToast('規定外休憩を終了しました（今回' + mins + '分 / 計' + total + '分）');
       breakStart = null;
     }
   }
@@ -2082,9 +2424,11 @@
       moveSessions.push({ start: moveStart, end: now, mins });
       card.classList.remove('on-move');
       pill.checked = false;
-      timeEl.textContent = '計 ' + mins + '分';
+      // 1日に複数回移動しても合計されるよう、これまでの合計に加算する
+      const total = currentMoveMins() + mins;
+      timeEl.textContent = '計 ' + total + '分';
       addHistory('時間外移動 終了', mins + '分', t, '#7b8ef7');
-      showToast('時間外移動を終了しました（' + mins + '分）');
+      showToast('時間外移動を終了しました（今回' + mins + '分 / 計' + total + '分）');
       moveStart = null;
     }
   }
@@ -2278,6 +2622,8 @@
   document.getElementById('correct-modal').addEventListener('click', function(e) { if (e.target===this) closeModal('correct-modal'); });
   document.getElementById('timesheet-pdf-modal').addEventListener('click', function(e) { if (e.target===this) closeModal('timesheet-pdf-modal'); });
   document.getElementById('holiday-work-modal').addEventListener('click', function(e) { if (e.target===this) closeModal('holiday-work-modal'); });
+  document.getElementById('rework-modal').addEventListener('click',     function(e) { if (e.target===this) closeModal('rework-modal'); });
+  document.getElementById('rework-out-modal').addEventListener('click', function(e) { if (e.target===this) closeModal('rework-out-modal'); });
 </script>
 </body>
 </html>
