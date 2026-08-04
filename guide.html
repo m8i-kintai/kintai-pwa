@@ -680,7 +680,7 @@
       <table>
         <tr><th>打刻</th><th>種別</th><th>記録される時刻</th></tr>
         <tr><td rowspan="2">出勤</td><td>早出 / フレックス</td><td>15分単位で切り捨て<br><span style="color:var(--muted)">例：8時38分 → 8時30分</span></td></tr>
-        <tr><td>上記以外</td><td>9時より前なら9時ちょうど<br><span style="color:var(--muted)">例：8時50分 → 9時00分</span></td></tr>
+        <tr><td>上記以外</td><td>15分単位で切り捨て（9時より前なら9時）<br><span style="color:var(--muted)">例：13時31分 → 13時30分、8時50分 → 9時00分</span></td></tr>
         <tr><td>退勤</td><td>すべて</td><td>15分単位で切り上げ<br><span style="color:var(--muted)">例：18時05分 → 18時15分</span></td></tr>
       </table>
     </div>
