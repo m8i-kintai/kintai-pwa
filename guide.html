@@ -180,7 +180,7 @@
   .step-note {
     margin-top: 8px; padding: 10px 13px;
     background: rgba(229,168,75,0.07); border-left: 3px solid var(--amber);
-    border-radius: 8px; font-size: 12.5px; line-height: 1.85; color: var(--muted);
+    border-radius: 8px; font-size: 12.5px; line-height: 1.85; color: #cfd4e2;
     font-weight: 400;
   }
   .step-note strong { color: var(--text); }
@@ -423,8 +423,8 @@
   }
   .mock .apply-header-left { display: flex; align-items: center; gap: 9px; }
   .mock .apply-badge {
-    background: rgba(159,122,240,0.15); border: 1px solid rgba(159,122,240,0.3);
-    border-radius: 6px; color: var(--purple);
+    background: var(--purple); border: 1px solid transparent;
+    border-radius: 6px; color: #fff;
     font-size: 10px; font-weight: 700; padding: 3px 7px; letter-spacing: .5px; white-space: nowrap;
   }
   .mock .apply-badge.red    { background: rgba(224,90,90,0.15);  border-color: rgba(224,90,90,0.35);  color: #fff; background-color: var(--red); }
@@ -448,20 +448,37 @@
     h2 { font-size: 17px; }
   }
 
+  @page { margin: 14mm 12mm; }
   @media print {
     body { background: #fff; color: #000; }
     body::before, body::after { display: none; }
     .top-bar, .toc { display: none; }
+    .wrap { max-width: none; padding: 0; }
     .card, .note, th, td { border-color: #bbb; }
     .card, td { background: #fff; }
     th { background: #eee; }
+    /* 注記類は白背景で読めるよう濃い文字に（モック内は除く） */
+    .step-note, .note { color: #333; }
+    .step-note strong, .note strong { color: #000; }
+    .step-note a, .note a { color: #9a6a00; }
     .hero h1 { -webkit-text-fill-color: #000; color: #000; }
-    section { page-break-inside: avoid; }
+    /* 見出しは直後の本文と切り離さない／各章は次ページ頭から始める */
+    section { page-break-inside: auto; }
+    section > h2 { page-break-before: always; }
+    section:first-of-type > h2 { page-break-before: avoid; }
+    h2, h3, h4 { page-break-after: avoid; break-after: avoid; }
+    /* 図・注記・表・カード・手順・FAQは途中で切らない */
+    figure, .note, .card, table, .fig, ol.steps, .faq-item {
+      page-break-inside: avoid; break-inside: avoid;
+    }
     .faq-body { display: block !important; color: #333; }
     /* 再現図はアプリと同じ暗い配色のまま印刷する */
     .fig, .fig-frame, .mock, .mock * {
       -webkit-print-color-adjust: exact; print-color-adjust: exact;
     }
+    /* モック内は暗い背景なので、色指定のない文字（申請名など）を明るい色に戻す
+       ※印刷で body を黒文字に強制した副作用で「暗背景に黒文字」になるのを防ぐ */
+    .mock { color: #f0efe8; }
     .fig-frame { box-shadow: none; border-color: #888; }
     .fig figcaption { color: #333; }
     .fig figcaption b { color: #000; }
@@ -701,14 +718,14 @@
       <figcaption>ボタンを押すと出る確認画面。内容を確かめて<b>「打刻する」</b>を押すと記録されます。</figcaption>
     </figure>
 
-    <h3>打刻時刻は自動で調整されます</h3>
-    <p>ボタンを押した時刻がそのまま記録されるわけではありません。次のルールで丸められた時刻が勤務表に入ります。</p>
+    <h3>打刻時刻は1分単位で記録されます</h3>
+    <p>ボタンを押した時刻が<strong>そのまま1分単位</strong>で勤務表に記録されます（15分などへの丸めはありません）。勤務時間の計算では、次の起点だけが決まっています。</p>
     <div class="tbl-wrap">
       <table>
-        <tr><th>打刻</th><th>種別</th><th>記録される時刻</th></tr>
-        <tr><td rowspan="2">出勤</td><td>早出 / フレックス</td><td>15分単位で切り捨て<br><span style="color:var(--muted)">例：8時38分 → 8時30分</span></td></tr>
-        <tr><td>上記以外</td><td>15分単位で切り捨て（9時より前なら9時）<br><span style="color:var(--muted)">例：13時31分 → 13時30分、8時50分 → 9時00分</span></td></tr>
-        <tr><td>退勤</td><td>すべて</td><td>15分単位で切り上げ<br><span style="color:var(--muted)">例：18時05分 → 18時15分</span></td></tr>
+        <tr><th>打刻</th><th>種別</th><th>勤務時間の起点</th></tr>
+        <tr><td rowspan="2">出勤</td><td>通常</td><td>始業は<strong>9:00が下限</strong>（9時より前に出勤しても勤務は9:00から）<br><span style="color:var(--muted)">例：8時50分 出勤 → 9時00分から</span></td></tr>
+        <tr><td>早出 / フレックス</td><td>実際の打刻どおり<br><span style="color:var(--muted)">例：8時38分 → 8時38分</span></td></tr>
+        <tr><td>退勤</td><td>すべて</td><td>実際の打刻どおり<br><span style="color:var(--muted)">例：18時05分 → 18時05分</span></td></tr>
       </table>
     </div>
 
@@ -834,8 +851,8 @@
     </figure>
 
     <div class="note note-warn">
-      <strong>15分単位で計上されます</strong>
-      合計時間は15分単位に切り捨てて勤務表に反映されます。10分の外出は0分、20分の外出は15分として扱われます。
+      <strong>1分単位で計上されます</strong>
+      ON/OFFで計測した合計時間が、そのまま<strong>1分単位</strong>で勤務表に反映されます（丸めはありません）。
     </div>
     <div class="note note-stop">
       <strong>OFFに戻し忘れに注意してください</strong>
@@ -853,7 +870,7 @@
     </ol>
     <div class="note note-warn">
       <strong>承認は不要・すぐに反映されます</strong>
-      「修正する」を押した時点で勤務表に直接反映されます。<b>加算ではなく上書き</b>なので、その日の最終的な合計時間を入れてください（例：合計1.5時間なら「1.50 時間」を選ぶ）。
+      「修正する」を押した時点で勤務表に直接反映されます。<b>加算ではなく上書き</b>なので、その日の最終的な合計時間を入れてください（例：合計1時間30分なら「1:30」と入力）。
     </div>
     <div class="note">
       <strong>修正した記録は残ります</strong>
@@ -1109,7 +1126,7 @@
 
     <details class="faq">
       <summary>打刻した時刻と勤務表の時刻が違います</summary>
-      <div class="faq-body">打刻時刻は自動で丸められます。出勤は9時より前なら9時に、早出・フレックスは15分単位で切り捨て、退勤は15分単位で切り上げになります。詳しくは<a href="#s3" style="color:var(--accent2)">03 出勤・退勤の打刻</a>をご覧ください。</div>
+      <div class="faq-body">打刻時刻は1分単位でそのまま記録されます（丸めはありません）。ただし通常の始業は9:00が下限で、9時より前に出勤しても勤務は9:00からになります（早出・フレックスは実際の打刻どおり）。詳しくは<a href="#s3" style="color:var(--accent2)">03 出勤・退勤の打刻</a>をご覧ください。</div>
     </details>
 
     <details class="faq">
@@ -1140,5 +1157,16 @@
   </footer>
 
 </div>
+<script>
+  // 印刷・PDF化のときは FAQ(details) を全部開く（画面のアコーディオンはそのまま）。
+  // PDF生成では ?print=1 を付けて開いた状態でレンダリングする。
+  (function () {
+    function openAll()  { document.querySelectorAll('details').forEach(function (d) { d.open = true;  }); }
+    function closeAll() { document.querySelectorAll('details').forEach(function (d) { d.open = false; }); }
+    if (location.search.indexOf('print=1') >= 0) openAll();
+    window.addEventListener('beforeprint', openAll);
+    window.addEventListener('afterprint',  closeAll);
+  })();
+</script>
 </body>
 </html>
