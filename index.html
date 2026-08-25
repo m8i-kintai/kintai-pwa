@@ -8,6 +8,14 @@
 <meta name="apple-mobile-web-app-title" content="キンジロー君">
 <link rel="apple-touch-icon" href="imnz6098.png">
 <link rel="manifest" href="manifest.json">
+<script>
+  // Service Worker 登録（iOSでのPWA保存安定化＋オフライン耐性）
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('sw.js').catch(function () {});
+    });
+  }
+</script>
 <title>キンジロー君</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -497,7 +505,7 @@
         <input class="field-input" id="emp-id" type="text" inputmode="numeric" placeholder="例：1～999" autocomplete="off">
       </div>
       <div class="login-error" id="login-error">社員番号が見つかりません</div>
-      <button class="login-btn" id="send-code-btn" onclick="sendOtp()">確認コードを送信</button>
+      <button class="login-btn" id="send-code-btn" onclick="sendOtp()">ログイン/確認コードを送信</button>
       <a class="guide-link" href="guide.html">📖 はじめての方はこちら（使い方ガイド）</a>
       <!-- 一時：自動ログイン診断（原因特定後に削除） -->
       <div id="auto-debug" style="margin-top:10px;font-size:11px;color:#9aa;text-align:center;line-height:1.4;"></div>
@@ -1502,7 +1510,7 @@
         ? 'サーバーが混み合っています。5分ほど時間をおいて、もう一度お試しください'
         : '通信に失敗しました。電波状況をご確認のうえ、もう一度お試しください');
     } finally {
-      btn.textContent = '確認コードを送信'; btn.disabled = false;
+      btn.textContent = 'ログイン/確認コードを送信'; btn.disabled = false;
     }
   }
 
