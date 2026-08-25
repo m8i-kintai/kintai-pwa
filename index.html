@@ -490,14 +490,35 @@
     <div class="login-subtitle">社員番号を入力してログイン</div>
   </div>
   <div class="login-form">
-    <div class="field-group">
-      <div class="field-label">社員番号</div>
-      <input class="field-input" id="emp-id" type="text" inputmode="numeric" placeholder="例：1～999" autocomplete="off">
+    <!-- STEP1：社員番号 → 確認コード送信 -->
+    <div id="login-step1">
+      <div class="field-group">
+        <div class="field-label">社員番号</div>
+        <input class="field-input" id="emp-id" type="text" inputmode="numeric" placeholder="例：1～999" autocomplete="off">
+      </div>
+      <div class="login-error" id="login-error">社員番号が見つかりません</div>
+      <button class="login-btn" id="send-code-btn" onclick="sendOtp()">確認コードを送信</button>
+      <a class="guide-link" href="guide.html">📖 はじめての方はこちら（使い方ガイド）</a>
     </div>
 
-    <div class="login-error" id="login-error">社員番号が見つかりません</div>
-    <button class="login-btn" onclick="doLogin()">ログイン</button>
-    <a class="guide-link" href="guide.html">📖 はじめての方はこちら（使い方ガイド）</a>
+    <!-- STEP2：メールに届いた6桁コードを入力 -->
+    <div id="login-step2" style="display:none;">
+      <div class="field-group">
+        <div class="field-label">確認コード（メールに届いた6桁）</div>
+        <input class="field-input" id="otp-code" type="text" inputmode="numeric" maxlength="6" placeholder="______" autocomplete="one-time-code" style="letter-spacing:8px;text-align:center;font-size:22px;">
+      </div>
+      <div id="otp-sent-note" style="font-size:12px;color:var(--muted);margin:-4px 0 10px;line-height:1.5;"></div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);margin-bottom:10px;cursor:pointer;">
+        <input type="checkbox" id="remember-device" checked style="width:16px;height:16px;flex:none;">
+        この端末を記憶する（次回からコード入力不要）
+      </label>
+      <div class="login-error" id="otp-error">コードが違います</div>
+      <button class="login-btn" id="verify-btn" onclick="verifyOtp()">ログイン</button>
+      <div style="display:flex;justify-content:space-between;margin-top:12px;font-size:13px;">
+        <a id="otp-back" style="color:var(--muted);cursor:pointer;" onclick="otpBack()">◀ 社員番号を戻す</a>
+        <a id="otp-resend" style="color:var(--accent2);cursor:pointer;" onclick="resendOtp()">コードを再送</a>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1417,69 +1438,193 @@
     }
   }
 
-  // GAS認証（社員番号でマスタ照合）
-  async function doLogin() {
+  // ======== メールOTPログイン（案B：パスワードレス＋端末記憶） ========
+  let otpEmpId = null;         // STEP2で照合する社員番号
+  let resendTimer = null;      // 再送クールダウン用
+
+  // localStorage 安全ラッパー（プライベートモード等で例外を投げても起動を止めない）
+  function lsGet_(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }
+  function lsSet_(k,v){ try { localStorage.setItem(k,v); } catch(e){} }
+  function lsDel_(k){ try { localStorage.removeItem(k); } catch(e){} }
+
+  const showStepError = (elId, msg) => {
+    const err = document.getElementById(elId);
+    err.textContent = msg;
+    err.classList.remove('show');
+    void err.offsetWidth;
+    err.classList.add('show');
+  };
+
+  // ログイン完了時の共通初期化（OTP照合・自動ログインの両方から呼ぶ）
+  function enterApp(data) {
+    currentUser = { id: String(data.empId), name: data.empName, dept: data.dept, flag: data.flag || 1 };
+    document.getElementById('login-error').classList.remove('show');
+    document.getElementById('otp-error').classList.remove('show');
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('punch-screen').style.display = 'flex';
+    document.getElementById('disp-name').textContent = currentUser.name;
+    document.getElementById('disp-code').textContent = `No. ${currentUser.id}`;
+    document.getElementById('pm-name').textContent   = currentUser.name;
+    document.getElementById('am-name').textContent   = currentUser.name;
+    setTodayMin();
+    loadPunchState();
+    loadOvertimeStateOnLogin();
+    fetchTodayPunchStatus();
+    restoreSavedSelections();
+    updateReworkAvailability();
+  }
+
+  // STEP1：確認コードを送信
+  async function sendOtp() {
     const id  = document.getElementById('emp-id').value.trim();
-    const err = document.getElementById('login-error');
-    const btn = document.querySelector('.login-btn');
-
-    // 失敗の理由が分かるようメッセージを出し分ける
-    // （従来はどの失敗でも「社員番号が見つかりません」と表示していた）
-    const showLoginError = (msg) => {
-      err.textContent = msg;
-      err.classList.remove('show');
-      void err.offsetWidth;
-      err.classList.add('show');
-    };
-
-    if (!id) { showLoginError('社員番号を入力してください'); return; }
-
-    btn.textContent = '確認中...';
-    btn.disabled = true;
-
+    const btn = document.getElementById('send-code-btn');
+    if (!id) { showStepError('login-error', '社員番号を入力してください'); return; }
+    btn.textContent = '送信中...'; btn.disabled = true;
     try {
-      let res;
-      try {
-        res = await fetch(GAS_URL + '?empId=' + encodeURIComponent(id));
-      } catch(netErr) {
-        showLoginError('通信に失敗しました。電波状況をご確認のうえ、もう一度お試しください');
-        return;
-      }
-
-      let data;
-      try {
-        data = await res.json();
-      } catch(parseErr) {
-        // サーバーがJSON以外（混雑時のエラーページなど）を返した場合
-        showLoginError('サーバーが混み合っています。5分ほど時間をおいて、もう一度お試しください');
-        return;
-      }
-
+      const data = await postJson_({ requestType: 'otpRequest', empId: id });
       if (data.status === 'ok') {
-        currentUser = { id: data.empId, name: data.empName, dept: data.dept, flag: data.flag || 1 };
-        err.classList.remove('show');
-        document.getElementById('login-screen').style.display = 'none';
-        document.getElementById('punch-screen').style.display = 'flex';
-        document.getElementById('disp-name').textContent = currentUser.name;
-        document.getElementById('disp-code').textContent = `No. ${id}`;
-        document.getElementById('pm-name').textContent   = currentUser.name;
-        document.getElementById('am-name').textContent   = currentUser.name;
-        setTodayMin();
-        loadPunchState();
-        loadOvertimeStateOnLogin();  // 残業申請状態を復元
-        fetchTodayPunchStatus();  // サーバーから当日打刻状況を取得
-        restoreSavedSelections();  // 種別・稼働部門を復元
-        updateReworkAvailability();  // 呼び出し用の控えがあれば再出勤トグルを表示
+        otpEmpId = id;
+        document.getElementById('login-error').classList.remove('show');
+        document.getElementById('otp-sent-note').textContent =
+          (data.maskedEmail || '登録メール') + ' に確認コードを送信しました。届いた6桁を入力してください。';
+        document.getElementById('login-step1').style.display = 'none';
+        document.getElementById('login-step2').style.display = 'block';
+        document.getElementById('otp-code').value = '';
+        document.getElementById('otp-code').focus();
+        startResendCooldown(60);
       } else {
-        // GASが正常に応答したうえで該当なしと返した場合のみ、番号の誤りを案内する
-        showLoginError('社員番号が見つかりません');
+        showStepError('login-error', data.message || 'エラーが発生しました。もう一度お試しください');
       }
     } catch(e) {
-      showLoginError('エラーが発生しました。もう一度お試しください');
+      showStepError('login-error', e && e._busy
+        ? 'サーバーが混み合っています。5分ほど時間をおいて、もう一度お試しください'
+        : '通信に失敗しました。電波状況をご確認のうえ、もう一度お試しください');
     } finally {
-      btn.textContent = 'ログイン';
-      btn.disabled = false;
+      btn.textContent = '確認コードを送信'; btn.disabled = false;
     }
+  }
+
+  // STEP2：コードを照合してログイン
+  async function verifyOtp() {
+    const code     = document.getElementById('otp-code').value.trim();
+    const remember = document.getElementById('remember-device').checked;
+    const btn      = document.getElementById('verify-btn');
+    if (!code) { showStepError('otp-error', '確認コードを入力してください'); return; }
+    btn.textContent = '確認中...'; btn.disabled = true;
+    try {
+      const data = await postJson_({
+        requestType: 'otpVerify', empId: otpEmpId, code, remember,
+        deviceLabel: (navigator.platform || '')
+      });
+      if (data.status === 'ok') {
+        if (remember && data.token) {
+          lsSet_('authToken_' + data.empId, data.token);
+          lsSet_('lastEmpId', String(data.empId));
+        } else {
+          lsDel_('authToken_' + data.empId);
+          lsDel_('lastEmpId');
+        }
+        resetLoginUI_();
+        enterApp(data);
+      } else {
+        showStepError('otp-error', data.message || 'コードが違います');
+      }
+    } catch(e) {
+      showStepError('otp-error', e && e._busy
+        ? 'サーバーが混み合っています。少し待って再度お試しください'
+        : '通信に失敗しました。もう一度お試しください');
+    } finally {
+      btn.textContent = 'ログイン'; btn.disabled = false;
+    }
+  }
+
+  // 社員番号ステップへ戻す
+  function otpBack() {
+    if (resendTimer) { clearInterval(resendTimer); resendTimer = null; }
+    document.getElementById('login-step2').style.display = 'none';
+    document.getElementById('login-step1').style.display = 'block';
+    document.getElementById('otp-error').classList.remove('show');
+    document.getElementById('otp-code').value = '';
+    otpEmpId = null;
+  }
+
+  // コード再送
+  async function resendOtp() {
+    const link = document.getElementById('otp-resend');
+    if (!otpEmpId || link.dataset.cooling === '1') return;
+    try {
+      const data = await postJson_({ requestType: 'otpRequest', empId: otpEmpId });
+      if (data.status === 'ok') {
+        document.getElementById('otp-sent-note').textContent =
+          (data.maskedEmail || '登録メール') + ' に確認コードを再送しました。';
+        document.getElementById('otp-error').classList.remove('show');
+        startResendCooldown(60);
+      } else {
+        showStepError('otp-error', data.message || '再送に失敗しました');
+        if (data.code === 'cooldown' && data.wait) startResendCooldown(data.wait);
+      }
+    } catch(e) {
+      showStepError('otp-error', '通信に失敗しました。もう一度お試しください');
+    }
+  }
+
+  function startResendCooldown(sec) {
+    const link = document.getElementById('otp-resend');
+    let left = sec;
+    link.dataset.cooling = '1';
+    link.style.opacity = '0.5';
+    link.style.pointerEvents = 'none';
+    const tick = () => {
+      link.textContent = 'コードを再送（' + left + '秒）';
+      if (left <= 0) {
+        clearInterval(resendTimer); resendTimer = null;
+        link.dataset.cooling = '0';
+        link.style.opacity = '1';
+        link.style.pointerEvents = 'auto';
+        link.textContent = 'コードを再送';
+        return;
+      }
+      left--;
+    };
+    if (resendTimer) clearInterval(resendTimer);
+    tick();
+    resendTimer = setInterval(tick, 1000);
+  }
+
+  // 端末トークンで自動ログイン（起動時に試行）
+  async function tryAutoLogin() {
+    const id    = lsGet_('lastEmpId');
+    const token = id ? lsGet_('authToken_' + id) : null;
+    if (!id || !token) return;
+    try {
+      const data = await postJson_({ requestType: 'deviceVerify', empId: id, token });
+      if (data.status === 'ok') {
+        enterApp(data);
+      } else if (data.code === 'invalid' || data.code === 'notfound') {
+        lsDel_('authToken_' + id);   // 失効した端末トークンは破棄
+      }
+    } catch(e) { /* オフライン等：手動ログイン画面のまま */ }
+  }
+
+  // POST共通ヘルパー（JSON以外＝混雑ページ時は _busy を立てて投げる）
+  async function postJson_(payload) {
+    const res = await fetch(FORM_GAS_URL, { method: 'POST', body: JSON.stringify(payload) });
+    try {
+      return await res.json();
+    } catch(parseErr) {
+      const e = new Error('non-json'); e._busy = true; throw e;
+    }
+  }
+
+  // ログインUIを初期状態へ戻す
+  function resetLoginUI_() {
+    if (resendTimer) { clearInterval(resendTimer); resendTimer = null; }
+    document.getElementById('login-step2').style.display = 'none';
+    document.getElementById('login-step1').style.display = 'block';
+    document.getElementById('login-error').classList.remove('show');
+    document.getElementById('otp-error').classList.remove('show');
+    document.getElementById('otp-code').value = '';
+    otpEmpId = null;
   }
 
   function showApplyScreen() {
@@ -1507,7 +1652,8 @@
     document.getElementById('punch-screen').style.display = 'none';
     document.getElementById('login-screen').style.display = 'flex';
     const STICKY_CONTENT_IDS = ['25', '95'];
-    ['emp-id','work-dept','apply-note'].forEach(id => document.getElementById(id).value = '');
+    ['emp-id','otp-code','work-dept','apply-note'].forEach(id => document.getElementById(id).value = '');
+    resetLoginUI_();   // ログイン画面をSTEP1へ戻す
     // ID 25/95 は実施内容をクリアしない
     if (!STICKY_CONTENT_IDS.includes(String(currentUser && currentUser.id))) {
       document.getElementById('work-content').value = '';
@@ -2742,7 +2888,9 @@
 
   document.getElementById('overtime-modal').addEventListener('click', function(e) { if (e.target===this) closeModal('overtime-modal'); });
 
-  document.getElementById('emp-id').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+  document.getElementById('emp-id').addEventListener('keydown', e => { if (e.key === 'Enter') sendOtp(); });
+  document.getElementById('otp-code').addEventListener('keydown', e => { if (e.key === 'Enter') verifyOtp(); });
+  tryAutoLogin();   // 記憶済み端末なら自動ログイン
   document.getElementById('punch-modal').addEventListener('click', function(e) { if (e.target===this) closeModal('punch-modal'); });
   document.getElementById('apply-modal').addEventListener('click',   function(e) { if (e.target===this) closeModal('apply-modal'); });
   document.getElementById('correct-modal').addEventListener('click', function(e) { if (e.target===this) closeModal('correct-modal'); });
