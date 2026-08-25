@@ -1117,8 +1117,9 @@
         <input class="field-input-date" id="fg-date" type="date" style="width:100%">
       </div>
       <div>
-        <div class="field-label" style="margin-bottom:6px">時間（0.25時間刻み）</div>
-        <select class="work-input" id="fg-hours" style="-webkit-appearance:none;appearance:none;cursor:pointer;width:100%;font-size:16px;"></select>
+        <div class="field-label" style="margin-bottom:6px">時間（時:分・1分単位）</div>
+        <input class="field-input" id="fg-time" type="time" min="00:00" max="12:00" step="60" style="font-size:16px;width:100%">
+        <div class="work-note">0:00にするとその日の値を消せます（最大12:00）</div>
       </div>
       <button class="apply-submit" style="background:var(--accent2)" onclick="openFGAdjustModal()">修正する</button>
     </div>
@@ -1379,17 +1380,6 @@
     // 規定外休憩／時間外移動 修正：本日を上限
     const fgDateEl = document.getElementById('fg-date');
     if (fgDateEl) { fgDateEl.max = today; fgDateEl.value = today; }
-    // 時間の選択肢を 0.00〜12.00（0.25刻み）で生成
-    const fgHoursEl = document.getElementById('fg-hours');
-    if (fgHoursEl && !fgHoursEl.options.length) {
-      for (let v = 0; v <= 12.0001; v += 0.25) {
-        const val = v.toFixed(2);
-        const opt = document.createElement('option');
-        opt.value = val;
-        opt.textContent = val + ' 時間' + (v === 0 ? '（なし）' : '');
-        fgHoursEl.appendChild(opt);
-      }
-    }
   }
 
   // ======== 打刻状態の保存・復元（0時にリセット） ========
@@ -1797,8 +1787,8 @@
       formData.append(FORM_ENTRIES.date,      d);
       formData.append(FORM_ENTRIES.dept,      dept);
       formData.append(FORM_ENTRIES.content,   cont2);
-      formData.append(FORM_ENTRIES.breakMins, Math.floor(breakMins / 15) * 0.25);
-      formData.append(FORM_ENTRIES.moveMins,  Math.floor(moveMins  / 15) * 0.25);
+      formData.append(FORM_ENTRIES.breakMins, breakMins);   // 分で送信（GAS側で時間割合に変換・1分単位）
+      formData.append(FORM_ENTRIES.moveMins,  moveMins);
       formData.append(FORM_ENTRIES.lat,       lat);
       formData.append(FORM_ENTRIES.lng,       lng);
       await fetch(FORM_URL, { method: 'POST', mode: 'no-cors', body: formData });
@@ -2314,22 +2304,31 @@
     selectedFGType = el.dataset.fg;
   }
 
+  // "HH:MM" → 分（不正なら NaN）
+  function fgTimeToMinutes_(v) {
+    if (!v || v.indexOf(':') < 0) return NaN;
+    const p = v.split(':');
+    return parseInt(p[0], 10) * 60 + parseInt(p[1], 10);
+  }
+
   function openFGAdjustModal() {
     if (checkPresident()) return;
-    const dateVal  = document.getElementById('fg-date').value;
-    const hoursVal = document.getElementById('fg-hours').value;
-    if (!dateVal)  { showToast('対象日付を選択してください'); return; }
-    if (hoursVal === '' || hoursVal == null) { showToast('時間を選択してください'); return; }
+    const dateVal = document.getElementById('fg-date').value;
+    const timeVal = document.getElementById('fg-time').value;
+    const mins    = fgTimeToMinutes_(timeVal);
+    if (!dateVal) { showToast('対象日付を選択してください'); return; }
+    if (isNaN(mins)) { showToast('時間を入力してください'); return; }
+    if (mins > 720) { showToast('12:00以内で入力してください'); return; }
     document.getElementById('fgm-name').textContent  = currentUser.name;
     document.getElementById('fgm-date').textContent  = dateVal.replace(/-/g,'/');
     document.getElementById('fgm-type').textContent  = selectedFGType;
-    document.getElementById('fgm-hours').textContent = parseFloat(hoursVal).toFixed(2) + ' 時間';
+    document.getElementById('fgm-hours').textContent = timeVal + '（' + mins + '分）';
     document.getElementById('fg-modal').classList.add('show');
   }
 
   async function doFGAdjust() {
-    const dateVal  = document.getElementById('fg-date').value;
-    const hoursVal = document.getElementById('fg-hours').value;
+    const dateVal = document.getElementById('fg-date').value;
+    const mins    = fgTimeToMinutes_(document.getElementById('fg-time').value);
     closeModal('fg-modal');
     showToast('勤務表を修正中...');
     try {
@@ -2340,8 +2339,8 @@
           empId:       currentUser.id,
           empName:     currentUser.name,
           targetDate:  dateVal.replace(/-/g,'/'),
-          fgType:      selectedFGType,        // '規定外休憩' or '時間外移動'
-          hours:       parseFloat(hoursVal),  // 0〜12（0.25刻み）
+          fgType:      selectedFGType,   // '規定外休憩' or '時間外移動'
+          minutes:     mins,             // 0〜720分（1分単位）
         })
       });
       const data = await res.json();
@@ -2620,8 +2619,8 @@
       fd.append(FORM_ENTRIES.date,      rec.workDate);       // ★今日ではなく勤務日に書く
       fd.append(FORM_ENTRIES.dept,      rec.dept || '');     // 初回退勤の稼働部門を引き継ぐ
       fd.append(FORM_ENTRIES.content,   rec.content || '');  // 初回退勤の実施内容を引き継ぐ
-      fd.append(FORM_ENTRIES.breakMins, Math.floor(totalMins / 15) * 0.25);
-      fd.append(FORM_ENTRIES.moveMins,  Math.floor((rec.moveMins || 0) / 15) * 0.25);
+      fd.append(FORM_ENTRIES.breakMins, totalMins);              // 分で送信（GAS側で時間割合に変換・1分単位）
+      fd.append(FORM_ENTRIES.moveMins,  (rec.moveMins || 0));
       fd.append(FORM_ENTRIES.lat,       lat);
       fd.append(FORM_ENTRIES.lng,       lng);
       await fetch(FORM_URL, { method: 'POST', mode: 'no-cors', body: fd });
