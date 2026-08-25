@@ -1062,6 +1062,38 @@
     </div>
   </div>
 
+  <!-- 規定外休憩／時間外移動 修正 -->
+  <div class="apply-card">
+    <div class="apply-header" id="fg-header" onclick="toggleFGAdjust()">
+      <div class="apply-header-left">
+        <div class="apply-badge" style="background:var(--accent2);color:#fff">修正</div>
+        <div class="apply-title">規定外休憩／時間外移動 修正</div>
+      </div>
+      <span class="apply-chevron" id="fg-chevron">▾</span>
+    </div>
+    <div class="apply-body" id="fg-body">
+      <div style="font-size:12px;color:var(--muted);line-height:1.6;">
+        規定外休憩・時間外移動の時間を修正します。<br>「修正する」を押すと、その日の勤務表の値が入力した時間で<b>上書き</b>されます。
+      </div>
+      <div>
+        <div class="field-label" style="margin-bottom:8px">修正対象</div>
+        <div style="display:flex;gap:8px">
+          <button class="apply-btn selected" data-fg="規定外休憩" onclick="selectFGType(this)" style="flex:1">規定外休憩</button>
+          <button class="apply-btn"          data-fg="時間外移動" onclick="selectFGType(this)" style="flex:1">時間外移動</button>
+        </div>
+      </div>
+      <div>
+        <div class="field-label" style="margin-bottom:6px">対象日付</div>
+        <input class="field-input-date" id="fg-date" type="date" style="width:100%">
+      </div>
+      <div>
+        <div class="field-label" style="margin-bottom:6px">時間（0.25時間刻み）</div>
+        <select class="work-input" id="fg-hours" style="-webkit-appearance:none;appearance:none;cursor:pointer;width:100%;font-size:16px;"></select>
+      </div>
+      <button class="apply-submit" style="background:var(--accent2)" onclick="openFGAdjustModal()">修正する</button>
+    </div>
+  </div>
+
 
 </div>
 
@@ -1107,6 +1139,28 @@
     <div class="modal-btns">
       <button class="modal-cancel" onclick="closeModal('correct-modal')">キャンセル</button>
       <button class="modal-confirm" style="background:var(--amber)" onclick="doCorrect()">申請する</button>
+    </div>
+  </div>
+</div>
+
+<!-- 規定外休憩／時間外移動 修正 確認モーダル -->
+<div class="modal-backdrop" id="fg-modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">規定外休憩／時間外移動 修正の確認</div>
+    <div class="modal-sub">以下の内容で勤務表を上書きします</div>
+    <div class="modal-info">
+      <div class="modal-row"><span class="modal-row-label">氏名</span><span class="modal-row-value jp" id="fgm-name"></span></div>
+      <div class="modal-row"><span class="modal-row-label">対象日</span><span class="modal-row-value" id="fgm-date"></span></div>
+      <div class="modal-row"><span class="modal-row-label">修正対象</span><span class="modal-row-value jp" id="fgm-type"></span></div>
+      <div class="modal-row"><span class="modal-row-label">時間</span><span class="modal-row-value" id="fgm-hours"></span></div>
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:20px;line-height:1.6;">
+      「修正する」を押すと、その日の勤務表の値が上書きされます。（承認は不要）
+    </div>
+    <div class="modal-btns">
+      <button class="modal-cancel" onclick="closeModal('fg-modal')">キャンセル</button>
+      <button class="modal-confirm" style="background:var(--accent2)" onclick="doFGAdjust()">修正する</button>
     </div>
   </div>
 </div>
@@ -1247,6 +1301,7 @@
   let selectedType = '';
   let selectedApplyType = null;
   let selectedCorrectType = '出勤';
+  let selectedFGType = '規定外休憩';   // 規定外休憩/時間外移動 修正の対象列
   let isRemoteWork = false;
   let pendingAction = null;
 
@@ -1291,6 +1346,20 @@
     const holidayWorkDateEl = document.getElementById('holiday-work-date');
     holidayWorkDateEl.min   = today;
     holidayWorkDateEl.value = today;
+    // 規定外休憩／時間外移動 修正：本日を上限
+    const fgDateEl = document.getElementById('fg-date');
+    if (fgDateEl) { fgDateEl.max = today; fgDateEl.value = today; }
+    // 時間の選択肢を 0.00〜12.00（0.25刻み）で生成
+    const fgHoursEl = document.getElementById('fg-hours');
+    if (fgHoursEl && !fgHoursEl.options.length) {
+      for (let v = 0; v <= 12.0001; v += 0.25) {
+        const val = v.toFixed(2);
+        const opt = document.createElement('option');
+        opt.value = val;
+        opt.textContent = val + ' 時間' + (v === 0 ? '（なし）' : '');
+        fgHoursEl.appendChild(opt);
+      }
+    }
   }
 
   // ======== 打刻状態の保存・復元（0時にリセット） ========
@@ -2071,6 +2140,63 @@
     document.querySelectorAll('[data-correct]').forEach(b => b.classList.remove('selected'));
     document.querySelector('[data-correct="出勤"]').classList.add('selected');
     selectedCorrectType = '出勤';
+  }
+
+  // ======== 規定外休憩／時間外移動 修正（直接上書き・承認不要） ========
+  function toggleFGAdjust() {
+    const body    = document.getElementById('fg-body');
+    const chevron = document.getElementById('fg-chevron');
+    const header  = document.getElementById('fg-header');
+    const open    = body.classList.contains('open');
+    body.classList.toggle('open', !open);
+    chevron.classList.toggle('open', !open);
+    header.classList.toggle('open', !open);
+  }
+
+  function selectFGType(el) {
+    document.querySelectorAll('[data-fg]').forEach(b => b.classList.remove('selected'));
+    el.classList.add('selected');
+    selectedFGType = el.dataset.fg;
+  }
+
+  function openFGAdjustModal() {
+    if (checkPresident()) return;
+    const dateVal  = document.getElementById('fg-date').value;
+    const hoursVal = document.getElementById('fg-hours').value;
+    if (!dateVal)  { showToast('対象日付を選択してください'); return; }
+    if (hoursVal === '' || hoursVal == null) { showToast('時間を選択してください'); return; }
+    document.getElementById('fgm-name').textContent  = currentUser.name;
+    document.getElementById('fgm-date').textContent  = dateVal.replace(/-/g,'/');
+    document.getElementById('fgm-type').textContent  = selectedFGType;
+    document.getElementById('fgm-hours').textContent = parseFloat(hoursVal).toFixed(2) + ' 時間';
+    document.getElementById('fg-modal').classList.add('show');
+  }
+
+  async function doFGAdjust() {
+    const dateVal  = document.getElementById('fg-date').value;
+    const hoursVal = document.getElementById('fg-hours').value;
+    closeModal('fg-modal');
+    showToast('勤務表を修正中...');
+    try {
+      const res = await fetch(FORM_GAS_URL, {
+        method: 'POST',
+        body: JSON.stringify({
+          requestType: 'adjustFG',
+          empId:       currentUser.id,
+          empName:     currentUser.name,
+          targetDate:  dateVal.replace(/-/g,'/'),
+          fgType:      selectedFGType,        // '規定外休憩' or '時間外移動'
+          hours:       parseFloat(hoursVal),  // 0〜12（0.25刻み）
+        })
+      });
+      const data = await res.json();
+      showToast(data.status === 'ok'
+        ? '勤務表を修正しました'
+        : `⚠️ ${data.message || '修正に失敗しました'}`
+      );
+    } catch(err) {
+      showToast('⚠️ 通信エラー。後で再送してください。');
+    }
   }
 
   // ======== 勤務表PDF送信 ========
