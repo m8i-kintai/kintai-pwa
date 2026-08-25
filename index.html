@@ -505,10 +505,9 @@
         <input class="field-input" id="emp-id" type="text" inputmode="numeric" placeholder="例：1～999" autocomplete="off">
       </div>
       <div class="login-error" id="login-error">社員番号が見つかりません</div>
-      <button class="login-btn" id="send-code-btn" onclick="sendOtp()">ログイン/確認コードを送信</button>
+      <button class="login-btn" id="send-code-btn" onclick="sendOtp()">確認コード送信</button>
+      <div style="margin-top:10px;font-size:12px;color:var(--muted);text-align:center;line-height:1.6;">確認コード記憶中は自動でログインされます<br>（確認コードは約30日記憶されます）</div>
       <a class="guide-link" href="guide.html">📖 はじめての方はこちら（使い方ガイド）</a>
-      <!-- 一時：自動ログイン診断（原因特定後に削除） -->
-      <div id="auto-debug" style="margin-top:10px;font-size:11px;color:#9aa;text-align:center;line-height:1.4;"></div>
     </div>
 
     <!-- STEP2：メールに届いた6桁コードを入力 -->
@@ -1510,7 +1509,7 @@
         ? 'サーバーが混み合っています。5分ほど時間をおいて、もう一度お試しください'
         : '通信に失敗しました。電波状況をご確認のうえ、もう一度お試しください');
     } finally {
-      btn.textContent = 'ログイン/確認コードを送信'; btn.disabled = false;
+      btn.textContent = '確認コード送信'; btn.disabled = false;
     }
   }
 
@@ -1605,21 +1604,15 @@
   async function tryAutoLogin() {
     const id    = lsGet_('lastEmpId');
     const token = id ? lsGet_('authToken_' + id) : null;
-    // 一時診断：保存状態を表示（原因特定後に削除）
-    const dbg = (m) => { const el = document.getElementById('auto-debug'); if (el) el.textContent = '[診断] ' + m; };
-    if (!id)    { dbg('保存なし（lastEmpId無し）'); return; }
-    if (!token) { dbg('保存なし（トークン無し）id=' + id); return; }
-    dbg('トークンあり→照合中… id=' + id);
+    if (!id || !token) return;
     try {
       const data = await postJson_({ requestType: 'deviceVerify', empId: id, token });
       if (data.status === 'ok') {
-        dbg('照合OK');
         enterApp(data);
-      } else {
-        dbg('照合NG: ' + (data.code || '?'));
-        if (data.code === 'invalid' || data.code === 'notfound') lsDel_('authToken_' + id);   // 失効した端末トークンは破棄
+      } else if (data.code === 'invalid' || data.code === 'notfound') {
+        lsDel_('authToken_' + id);   // 失効した端末トークンは破棄
       }
-    } catch(e) { dbg('通信エラー（catch）'); /* オフライン等：手動ログイン画面のまま */ }
+    } catch(e) { /* オフライン等：手動ログイン画面のまま */ }
   }
 
   // POST共通ヘルパー（JSON以外＝混雑ページ時は _busy を立てて投げる）
