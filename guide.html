@@ -507,7 +507,7 @@
       <li><a href="#s3">出勤・退勤の打刻（再出勤ふくむ）</a></li>
       <li><a href="#s4">種別の選び方</a></li>
       <li><a href="#s5">規定外休憩・時間外移動</a></li>
-      <li><a href="#s6">稼働情報（稼働部門・実施内容）</a></li>
+      <li><a href="#s6">稼働情報（地域区分・稼働部門・実施内容）</a></li>
       <li><a href="#s7">残業申請</a></li>
       <li><a href="#s8">休暇・欠勤申請</a></li>
       <li><a href="#s9">休日出勤申請と振替休日</a></li>
@@ -883,6 +883,7 @@
     <h2><span class="num">06</span>稼働情報</h2>
     <p class="lead">その日どこで何をしたかを記録します。<strong>退勤打刻のときに必須</strong>です。</p>
     <ul class="plain">
+      <li><strong>地域区分</strong>：遠地・出張のときだけ使います（次で説明。通常は使いません）</li>
       <li><strong>稼働部門</strong>：その日稼働した部門をリストから選びます</li>
       <li><strong>実施内容</strong>：作業内容を具体的に入力します（例：顧客訪問、社内会議、現場作業）</li>
     </ul>
@@ -892,6 +893,16 @@
         <div class="mock">
           <div class="work-card">
             <div class="section-label" style="margin-bottom:0">稼働情報（必須）</div>
+            <div class="work-field">
+              <div style="display:flex;align-items:center;justify-content:space-between;">
+                <div class="field-label" style="margin-bottom:0">地域区分</div>
+                <span class="toggle-switch on accent"><span class="toggle-slider"></span></span>
+              </div>
+              <div style="display:flex;gap:8px;margin-top:10px;">
+                <div style="flex:1;text-align:center;padding:8px 0;border-radius:8px;background:rgba(159,122,240,0.15);border:1px solid var(--purple);color:var(--purple);font-weight:700;font-size:13px;">遠地</div>
+                <div style="flex:1;text-align:center;padding:8px 0;border-radius:8px;border:1px solid var(--border);color:var(--muted);font-size:13px;">出張</div>
+              </div>
+            </div>
             <div class="work-field">
               <div class="field-label">稼働部門</div>
               <div class="work-input sel">建設3G</div>
@@ -911,6 +922,18 @@
       勤務表へ書き込まれるのは退勤打刻のタイミングです。
     </div>
     <p style="font-size:13px;color:var(--muted)">稼働部門は次回ログイン時に前回の選択が復元されます。</p>
+
+    <h3>地域区分（遠地・出張のとき）</h3>
+    <p>遠地や出張で勤務した日だけ使います。<strong>ふだんは使いません。</strong></p>
+    <ol class="steps">
+      <li><strong>地域区分のトグルをON</strong>にします → 「遠地」「出張」ボタンが表示されます</li>
+      <li>その日に合う<strong>「遠地」または「出張」を選択</strong>します</li>
+      <li>そのまま<strong>退勤ボタン</strong>を押すと、勤務表のその日の<strong>備考欄に「遠地」「出張」が追記</strong>されます</li>
+    </ol>
+    <div class="note note-info">
+      <strong>備考は上書きせず「追記」されます</strong>
+      もともと備考に記載がある場合は消さずに追加されます。通常の日は<b>トグルをOFF</b>のままにしてください。
+    </div>
   </section>
 
   <!-- ============ 7 ============ -->
