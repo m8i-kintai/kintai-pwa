@@ -2849,24 +2849,17 @@
   }
 
   // ======== 遠地：トグルONで退勤時に備考へ「遠地」を追記 ========
+  // ※記憶しない（アプリを開き直すと必ずOFFに戻る）
   let regionEnabled = false;
 
   function onRegionToggle(el) {
     regionEnabled = el.checked;
-    saveRegionState();
-  }
-  function saveRegionState() {
-    if (!currentUser) return;
-    lsSet_('regionState_' + currentUser.id, JSON.stringify({ enabled: regionEnabled }));
   }
   function restoreRegionState() {
-    regionEnabled = false;
+    regionEnabled = false;                                   // 常にOFFで開始
     const tgl = document.getElementById('region-toggle');
     if (tgl) tgl.checked = false;
-    if (!currentUser) return;
-    let s = {};
-    try { s = JSON.parse(lsGet_('regionState_' + currentUser.id) || '{}'); } catch (e) {}
-    if (s.enabled) { regionEnabled = true; if (tgl) tgl.checked = true; }
+    if (currentUser) lsDel_('regionState_' + currentUser.id);   // 旧バージョンの保存を掃除
   }
 
   // ログイン時に残業申請状態を復元
