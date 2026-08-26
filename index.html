@@ -684,6 +684,21 @@
   <!-- 稼働情報 -->
   <div class="work-card">
     <div class="section-label" style="margin-bottom:0">稼働情報（必須）</div>
+    <!-- 地域区分 -->
+    <div class="work-field">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div class="field-label" style="margin-bottom:0">地域区分</div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="region-toggle" onchange="onRegionToggle(this)">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div id="region-btns" style="display:none;gap:8px;margin-top:10px;">
+        <button class="apply-btn" data-region="遠地" onclick="selectRegion(this)" style="flex:1">遠地</button>
+        <button class="apply-btn" data-region="出張" onclick="selectRegion(this)" style="flex:1">出張</button>
+      </div>
+      <div class="work-note">ONにして選択すると、退勤時に備考へ追記されます（上書きせず追加）</div>
+    </div>
     <div class="work-field">
       <div class="field-label">稼働部門</div>
       <select class="work-input" id="work-dept" style="-webkit-appearance:none;appearance:none;cursor:pointer;" onchange="saveDeptSelection(this.value)">
@@ -1811,6 +1826,13 @@
         overtimeApplied = false;
         if (currentUser) saveOvertimeState(currentUser.id, false);
         resetOvertimeUI();
+        // 地域区分がONで選択済みなら、備考へ追記（上書きせず追加）
+        if (regionEnabled && selectedRegion) {
+          fetch(FORM_GAS_URL, {
+            method: 'POST',
+            body: JSON.stringify({ requestType: 'regionNote', empId: currentUser.id, date: d, region: selectedRegion })
+          }).catch(() => {});
+        }
         // 呼び出し用の控えを保存（この退勤を起点に、翌朝5:00まで再出勤できる）
         saveCallbackShift(d, now.getTime(), breakMins, moveMins, dept, cont2, selectedType);
         updateReworkAvailability();
@@ -2825,6 +2847,51 @@
       const savedContent = localStorage.getItem('savedWorkContent_' + currentUser.id);
       if (savedContent) {
         document.getElementById('work-content').value = savedContent;
+      }
+    }
+    restoreRegionState();
+  }
+
+  // ======== 地域区分（遠地/出張）：退勤時に備考へ追記 ========
+  let regionEnabled = false;
+  let selectedRegion = null;
+
+  function onRegionToggle(el) {
+    regionEnabled = el.checked;
+    document.getElementById('region-btns').style.display = el.checked ? 'flex' : 'none';
+    if (!el.checked) {
+      selectedRegion = null;
+      document.querySelectorAll('[data-region]').forEach(b => b.classList.remove('selected'));
+    }
+    saveRegionState();
+  }
+  function selectRegion(el) {
+    document.querySelectorAll('[data-region]').forEach(b => b.classList.remove('selected'));
+    el.classList.add('selected');
+    selectedRegion = el.dataset.region;
+    saveRegionState();
+  }
+  function saveRegionState() {
+    if (!currentUser) return;
+    lsSet_('regionState_' + currentUser.id, JSON.stringify({ enabled: regionEnabled, region: selectedRegion }));
+  }
+  function restoreRegionState() {
+    regionEnabled = false; selectedRegion = null;
+    const tgl = document.getElementById('region-toggle');
+    if (tgl) tgl.checked = false;
+    document.getElementById('region-btns').style.display = 'none';
+    document.querySelectorAll('[data-region]').forEach(b => b.classList.remove('selected'));
+    if (!currentUser) return;
+    let s = {};
+    try { s = JSON.parse(lsGet_('regionState_' + currentUser.id) || '{}'); } catch (e) {}
+    if (s.enabled) {
+      regionEnabled = true;
+      if (tgl) tgl.checked = true;
+      document.getElementById('region-btns').style.display = 'flex';
+      if (s.region) {
+        selectedRegion = s.region;
+        const b = document.querySelector('[data-region="' + s.region + '"]');
+        if (b) b.classList.add('selected');
       }
     }
   }
