@@ -893,7 +893,7 @@
       </div>
       <div>
         <div class="field-label" style="margin-bottom:8px">申請種別</div>
-        <select class="work-input" id="apply-type-select" onchange="selectedApplyType = this.value || null">
+        <select class="work-input" id="apply-type-select" onchange="onApplyTypeChange(this)">
           <option value="">選択してください</option>
           <option value="有給">有給</option>
           <option value="振休">振休</option>
@@ -924,6 +924,12 @@
           </div>
         </div>
         <div class="work-note" style="margin-top:2px">※1日の場合は開始日と終了日を同じ日付にしてください</div>
+      </div>
+      <!-- 振休のときだけ表示：いつの振休か（休日出勤した日） -->
+      <div id="furikyu-work-wrap" style="display:none;">
+        <div class="field-label" style="margin-bottom:6px">いつの振休か（休日出勤した日）</div>
+        <input class="field-input-date" id="furikyu-work-date" type="date" style="width:100%">
+        <div class="work-note" style="margin-top:2px">振休の対象となる休日出勤日を選びます</div>
       </div>
       <div class="work-field">
         <div class="field-label">備考（必須）</div>
@@ -1922,9 +1928,36 @@
     }
   }
 
+  // 申請種別の変更：振休のときだけ「いつの振休か」を表示
+  function onApplyTypeChange(el) {
+    selectedApplyType = el.value || null;
+    const wrap = document.getElementById('furikyu-work-wrap');
+    if (el.value === '振休') {
+      wrap.style.display = 'block';
+      // 後日申請対応：休日出勤日は「前月1日〜本日」まで遡って選べる
+      const now = new Date();
+      const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      const fw = document.getElementById('furikyu-work-date');
+      fw.min = fmt(new Date(now.getFullYear(), now.getMonth() - 1, 1));   // 前月1日
+      fw.max = fmt(now);                                                   // 本日
+    } else {
+      wrap.style.display = 'none';
+      document.getElementById('furikyu-work-date').value = '';
+    }
+  }
+
   function openApplyModal() {
     if (checkPresident()) return;
     if (!selectedApplyType) { showToast('申請種別を選択してください'); return; }
+    if (selectedApplyType === '振休') {
+      const fwVal = document.getElementById('furikyu-work-date').value;
+      if (!fwVal) { showToast('いつの振休か（休日出勤日）を選択してください'); return; }
+      const nowF = new Date();
+      const fmtF = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      if (fwVal < fmtF(new Date(nowF.getFullYear(), nowF.getMonth()-1, 1)) || fwVal > fmtF(nowF)) {
+        showToast('休日出勤日は前月1日〜本日の範囲で選択してください'); return;
+      }
+    }
     const startVal = document.getElementById('apply-date-start').value;
     const endVal   = document.getElementById('apply-date-end').value;
     if (!startVal || !endVal) { showToast('申請日を選択してください'); return; }
@@ -1964,6 +1997,10 @@
     // 全休はそのまま、午前休→(午前)、午後休→(午後) を付与
     const suffix    = leaveTime === '全休' ? '' : '(' + leaveTime.replace('休', '') + ')';
     const finalType = selectedApplyType + suffix;
+    // 振休のみ：いつの振休か（休日出勤日）
+    const furikyuWorkDate = (selectedApplyType === '振休')
+      ? document.getElementById('furikyu-work-date').value.replace(/-/g, '/')
+      : '';
 
     closeModal('apply-modal');
     showToast(`${finalType}の申請を送信中...`);
@@ -1979,6 +2016,7 @@
           startDate,
           endDate,
           note,
+          furikyuWorkDate,
         })
       });
       const data = await res.json();
@@ -1994,6 +2032,8 @@
     if (applyTypeSelect) applyTypeSelect.value = '';
     document.getElementById('apply-note').value = '';
     document.getElementById('apply-leave-time').value = '全休';
+    document.getElementById('furikyu-work-date').value = '';
+    document.getElementById('furikyu-work-wrap').style.display = 'none';
     selectedApplyType = null;
   }
 
