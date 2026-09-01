@@ -1812,27 +1812,25 @@
     const bid   = pendingAction === 'checkin' ? 'btn-checkin'    : 'btn-checkout';
 
     // ── 打刻時刻補正 ──────────────────────────
+    // 2026年9月以降＝実打刻（1分単位・丸めなし。9:00下限などは勤務表の数式側で処理）
+    // 2026年8月まで＝旧方式（出勤は15分切り捨て＋9:00補正／退勤は15分切り上げ）
     const punchTime = new Date(now);
-    if (label === '出勤') {
-      // 全種別：まず15分単位で切り捨て
-      punchTime.setMinutes(Math.floor(punchTime.getMinutes() / 15) * 15, 0, 0);
-      // 早出・フレックス以外：9:00より前なら9:00に補正
-      if (selectedType !== '早出' && selectedType !== 'フレックス') {
-        const nine = new Date(now);
-        nine.setHours(9, 0, 0, 0);
-        if (punchTime < nine) {
-          punchTime.setHours(9, 0, 0, 0);
+    const ymNow = now.getFullYear() * 100 + (now.getMonth() + 1);
+    if (ymNow < 202609) {
+      if (label === '出勤') {
+        punchTime.setMinutes(Math.floor(punchTime.getMinutes() / 15) * 15, 0, 0);
+        if (selectedType !== '早出' && selectedType !== 'フレックス') {
+          const nine = new Date(now); nine.setHours(9, 0, 0, 0);
+          if (punchTime < nine) punchTime.setHours(9, 0, 0, 0);
         }
+      } else {
+        const m = punchTime.getMinutes(), rem = m % 15;
+        if (rem !== 0) punchTime.setMinutes(m + (15 - rem), 0, 0);
+        else           punchTime.setSeconds(0, 0);
       }
     } else {
-      // 退勤：全種別15分単位切り上げ
-      const m = punchTime.getMinutes();
-      const rem = m % 15;
-      if (rem !== 0) {
-        punchTime.setMinutes(m + (15 - rem), 0, 0);
-      } else {
-        punchTime.setSeconds(0, 0);
-      }
+      // 新方式（2026年9月〜）：実打刻のまま。秒だけ落として1分単位で記録
+      punchTime.setSeconds(0, 0);
     }
 
     const pad = n => String(n).padStart(2, '0');
@@ -2703,14 +2701,18 @@
     document.getElementById('rework-out-modal').classList.add('show');
   }
 
-  // 退勤時刻を「勤務日の0時から数えた時刻」に整えて返す（15分切り上げ＋24時超え表記）
+  // 退勤時刻を「勤務日の0時から数えた時刻」に整えて返す（9月〜は実打刻1分／8月まで15分切り上げ、24時超え表記）
   // 戻り値 { hour, min, label } … hour は 24以上になり得る
   function reworkSheetTime(now, workDateStr) {
     const pt  = new Date(now);
-    const rem = pt.getMinutes() % 15;
-    if (rem !== 0) pt.setMinutes(pt.getMinutes() + (15 - rem), 0, 0);
-    else           pt.setSeconds(0, 0);
     const wd       = workDateStr.split('/').map(Number);
+    if (wd[0] * 100 + wd[1] < 202609) {
+      const rem = pt.getMinutes() % 15;
+      if (rem !== 0) pt.setMinutes(pt.getMinutes() + (15 - rem), 0, 0);
+      else           pt.setSeconds(0, 0);
+    } else {
+      pt.setSeconds(0, 0);   // 新方式：実打刻（1分）
+    }
     const workMid  = new Date(wd[0], wd[1] - 1, wd[2]).getTime();
     const nowMid   = new Date(pt.getFullYear(), pt.getMonth(), pt.getDate()).getTime();
     const daysDiff = Math.round((nowMid - workMid) / 86400000);
