@@ -2907,6 +2907,25 @@
   let moveStart = null;
   let moveSessions = [];
 
+  // 9:00〜18:00（所定時間帯）を除いた移動時間だけを分で返す
+  // 例: 17:30開始→19:00終了 なら 18:00〜19:00 の 60分のみ計上
+  function outOfHoursMoveMins_(start, end) {
+    const totalMs = Math.max(0, end - start);
+    if (totalMs === 0) return 0;
+    let insideMs = 0;                                  // 9:00-18:00 と重なる分
+    const cur  = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+    const last = new Date(end.getFullYear(),   end.getMonth(),   end.getDate());
+    while (cur <= last) {                              // 日をまたぐ移動にも対応
+      const ws = new Date(cur); ws.setHours(9, 0, 0, 0);
+      const we = new Date(cur); we.setHours(18, 0, 0, 0);
+      const ovStart = Math.max(start.getTime(), ws.getTime());
+      const ovEnd   = Math.min(end.getTime(),   we.getTime());
+      if (ovEnd > ovStart) insideMs += (ovEnd - ovStart);
+      cur.setDate(cur.getDate() + 1);
+    }
+    return Math.round((totalMs - insideMs) / 60000);
+  }
+
   function toggleMove() {
     const card = document.getElementById('move-card');
     const pill = document.getElementById('move-pill');
@@ -2924,15 +2943,20 @@
       showToast('時間外移動を開始しました（' + t.slice(0,5) + '）');
     } else {
       moveOn = false;
-      const mins = Math.round((now - moveStart) / 60000);
+      // 9:00〜18:00（所定時間帯）は計上せず、時間外の移動分だけを加算する
+      const mins = outOfHoursMoveMins_(moveStart, now);
       moveSessions.push({ start: moveStart, end: now, mins });
       card.classList.remove('on-move');
       pill.checked = false;
       // 1日に複数回移動しても合計されるよう、これまでの合計に加算する
       const total = currentMoveMins() + mins;
-      timeEl.textContent = '計 ' + total + '分';
+      timeEl.textContent = total > 0 ? ('計 ' + total + '分') : '──';
       addHistory('時間外移動 終了', mins + '分', t, '#7b8ef7');
-      showToast('時間外移動を終了しました（今回' + mins + '分 / 計' + total + '分）');
+      if (mins > 0) {
+        showToast('時間外移動を終了しました（今回' + mins + '分 / 計' + total + '分）');
+      } else {
+        showToast('9:00〜18:00の移動は計上されません（今回0分 / 計' + total + '分）');
+      }
       moveStart = null;
     }
   }
