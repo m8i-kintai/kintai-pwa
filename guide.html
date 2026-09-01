@@ -808,6 +808,7 @@
       <p style="margin-bottom:6px">9時以前や18時以降の移動時間など、残業の対象にしない時間を記録します。</p>
       <ul class="plain">
         <li>移動を始めるときにON、着いたらOFF</li>
+        <li><strong>9:00〜18:00に重なった分は計上されません</strong>（時間外の分だけを自動で計算します）</li>
       </ul>
     </div>
 
@@ -852,7 +853,12 @@
 
     <div class="note note-warn">
       <strong>1分単位で計上されます</strong>
-      ON/OFFで計測した合計時間が、そのまま<strong>1分単位</strong>で勤務表に反映されます（丸めはありません）。
+      ON/OFFで計測した時間は、そのまま<strong>1分単位</strong>で勤務表に反映されます（丸めはありません）。
+    </div>
+    <div class="note note-info">
+      <strong>時間外移動は「9:00〜18:00」を除いて計算されます</strong>
+      たとえば <b>17:30にON → 19:00にOFF</b> にした場合、所定時間内の 17:30〜18:00 は差し引かれ、
+      <b>18:00〜19:00 の 1時間（60分）だけ</b>が時間外移動として計上されます。所定時間内だけの移動でOFFにしたときは「0分」になります。
     </div>
     <div class="note note-stop">
       <strong>OFFに戻し忘れに注意してください</strong>
