@@ -84,6 +84,13 @@
   .seg button.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
   .set-label { font-size: 13px; color: var(--muted); margin: 4px 0 8px; }
 
+  /* 在宅：複数選択カレンダー */
+  .wfh-cal-dow { text-align: center; font-size: 11px; color: var(--muted); padding: 2px 0; }
+  .wfh-cal-day { text-align: center; padding: 9px 0; border-radius: 8px; font-size: 14px; cursor: pointer; border: 1px solid var(--border); background: var(--surface2); color: var(--text); }
+  .wfh-cal-day.sel { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+  .wfh-cal-day.disabled { opacity: 0.28; cursor: default; background: transparent; border-color: transparent; }
+  .wfh-cal-day.empty { background: transparent; border: none; cursor: default; }
+
   body {
     font-family: 'Noto Sans JP', sans-serif;
     background: var(--bg);
@@ -1020,10 +1027,11 @@
         <!-- 日付指定方法 -->
         <div style="margin-bottom:10px">
           <div style="font-size:12px;color:var(--muted);margin-bottom:6px">日付指定方法</div>
-          <div style="display:flex;gap:8px">
-            <button class="apply-btn selected" id="wfh-type-single" onclick="selectWFHType('single')" style="flex:1">単日</button>
-            <button class="apply-btn"          id="wfh-type-range"  onclick="selectWFHType('range')"  style="flex:1">期間指定</button>
-            <button class="apply-btn"          id="wfh-type-weekly" onclick="selectWFHType('weekly')" style="flex:1">毎週</button>
+          <div style="display:flex;flex-wrap:wrap;gap:8px">
+            <button class="apply-btn selected" id="wfh-type-single" onclick="selectWFHType('single')" style="flex:1 1 calc(50% - 4px)">単日</button>
+            <button class="apply-btn"          id="wfh-type-range"  onclick="selectWFHType('range')"  style="flex:1 1 calc(50% - 4px)">期間指定</button>
+            <button class="apply-btn"          id="wfh-type-weekly" onclick="selectWFHType('weekly')" style="flex:1 1 calc(50% - 4px)">毎週</button>
+            <button class="apply-btn"          id="wfh-type-multi"  onclick="selectWFHType('multi')"  style="flex:1 1 calc(50% - 4px)">複数選択</button>
           </div>
         </div>
 
@@ -1067,6 +1075,20 @@
               <input class="field-input-date" id="wfh-weekly-end" type="date" style="width:100%">
             </div>
           </div>
+        </div>
+
+        <!-- 複数選択（カレンダー・最大25日） -->
+        <div id="wfh-multi-area" style="display:none;margin-bottom:10px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <button type="button" class="settings-btn" onclick="wfhCalMove(-1)" style="padding:4px 12px;font-size:16px">◀</button>
+            <div id="wfh-cal-title" style="font-weight:600;font-size:14px"></div>
+            <button type="button" class="settings-btn" onclick="wfhCalMove(1)" style="padding:4px 12px;font-size:16px">▶</button>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-bottom:4px">
+            <div class="wfh-cal-dow">月</div><div class="wfh-cal-dow">火</div><div class="wfh-cal-dow">水</div><div class="wfh-cal-dow">木</div><div class="wfh-cal-dow">金</div>
+          </div>
+          <div id="wfh-cal-grid" style="display:grid;grid-template-columns:repeat(5,1fr);gap:4px"></div>
+          <div id="wfh-multi-count" style="font-size:12px;color:var(--muted);margin-top:8px">選択中：0 / 25日</div>
         </div>
 
         <!-- 時間（任意） -->
@@ -2156,6 +2178,9 @@
   // ======== 在宅申請 ========
   let wfhDateType     = 'single';
   let wfhSelectedDays = new Set();
+  let wfhMultiDates   = new Set();   // 複数選択：'YYYY/MM/DD' の集合（最大25）
+  let wfhCalMonth     = null;        // 複数選択カレンダーの表示月（その月の1日）
+  const WFH_MULTI_MAX = 25;
 
   function toggleWFH() {
     const body    = document.getElementById('wfh-body');
@@ -2169,12 +2194,71 @@
 
   function selectWFHType(type) {
     wfhDateType = type;
-    ['single','range','weekly'].forEach(t => {
+    ['single','range','weekly','multi'].forEach(t => {
       document.getElementById('wfh-type-' + t).classList.toggle('selected', t === type);
     });
     document.getElementById('wfh-single-area').style.display = type === 'single' ? '' : 'none';
     document.getElementById('wfh-range-area').style.display  = type === 'range'  ? '' : 'none';
     document.getElementById('wfh-weekly-area').style.display = type === 'weekly' ? '' : 'none';
+    document.getElementById('wfh-multi-area').style.display  = type === 'multi'  ? '' : 'none';
+    if (type === 'multi') {
+      if (!wfhCalMonth) { const n = new Date(); wfhCalMonth = new Date(n.getFullYear(), n.getMonth(), 1); }
+      renderWfhCal();
+    }
+  }
+
+  // 複数選択カレンダー（平日=月〜金のみ）
+  function wfhCalMove(delta) {
+    const now = new Date();
+    const minM = new Date(now.getFullYear(), now.getMonth(), 1);            // 当月まで戻れる
+    const maxM = new Date(now.getFullYear(), now.getMonth() + 6, 1);        // 6か月先まで
+    const next = new Date(wfhCalMonth.getFullYear(), wfhCalMonth.getMonth() + delta, 1);
+    if (next < minM || next > maxM) return;
+    wfhCalMonth = next;
+    renderWfhCal();
+  }
+  function renderWfhCal() {
+    const pad = n => String(n).padStart(2, '0');
+    const y = wfhCalMonth.getFullYear(), m = wfhCalMonth.getMonth();
+    document.getElementById('wfh-cal-title').textContent = `${y}年${m + 1}月`;
+    const grid = document.getElementById('wfh-cal-grid');
+    grid.innerHTML = '';
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const daysInMonth = new Date(y, m + 1, 0).getDate();
+    // 先頭の空きセル（月曜=0基準。日=0/月=1…なので (getDay()+6)%7）
+    const firstDow = (new Date(y, m, 1).getDay() + 6) % 7;   // 0=月 … 6=日
+    let lead = firstDow <= 4 ? firstDow : 0;                 // 土日始まりの月は先頭空きなし
+    for (let i = 0; i < lead; i++) { const e = document.createElement('div'); e.className = 'wfh-cal-day empty'; grid.appendChild(e); }
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dt = new Date(y, m, d);
+      const dow = dt.getDay();                               // 0=日,6=土
+      if (dow === 0 || dow === 6) continue;                  // 平日のみ表示
+      const ds = `${y}/${pad(m + 1)}/${pad(d)}`;
+      const cell = document.createElement('div');
+      cell.textContent = d;
+      const past = dt < today;
+      if (past) {
+        cell.className = 'wfh-cal-day disabled';
+      } else {
+        cell.className = 'wfh-cal-day' + (wfhMultiDates.has(ds) ? ' sel' : '');
+        cell.onclick = () => toggleWfhDate(ds);
+      }
+      grid.appendChild(cell);
+    }
+    updateWfhMultiCount();
+  }
+  function toggleWfhDate(ds) {
+    if (wfhMultiDates.has(ds)) {
+      wfhMultiDates.delete(ds);
+    } else {
+      if (wfhMultiDates.size >= WFH_MULTI_MAX) { showToast('選択できるのは最大' + WFH_MULTI_MAX + '日です'); return; }
+      wfhMultiDates.add(ds);
+    }
+    renderWfhCal();
+  }
+  function updateWfhMultiCount() {
+    const el = document.getElementById('wfh-multi-count');
+    if (el) el.textContent = `選択中：${wfhMultiDates.size} / ${WFH_MULTI_MAX}日`;
   }
 
   function toggleWFHDow(dow) {
@@ -2220,6 +2304,9 @@
       if (!s || !e) { showToast('開始日と終了日を選択してください'); return; }
       if (e < s)    { showToast('終了日は開始日以降を選択してください'); return; }
       dateDisplayText = s.replace(/-/g,'/') + ' 〜 ' + e.replace(/-/g,'/');
+    } else if (wfhDateType === 'multi') {
+      if (wfhMultiDates.size === 0) { showToast('対象日をカレンダーから選択してください'); return; }
+      dateDisplayText = Array.from(wfhMultiDates).sort().join('、');
     } else {
       if (wfhSelectedDays.size === 0) { showToast('曜日を選択してください'); return; }
       const s = document.getElementById('wfh-weekly-start').value;
@@ -2281,6 +2368,8 @@
     } else if (dateType === 'range') {
       datePayload.startDate = document.getElementById('wfh-range-start').value.replace(/-/g,'/');
       datePayload.endDate   = document.getElementById('wfh-range-end').value.replace(/-/g,'/');
+    } else if (dateType === 'multi') {
+      datePayload.dates = Array.from(wfhMultiDates).sort();   // 'YYYY/MM/DD' の配列
     } else {
       datePayload.weekDays  = [1,2,3,4,5].filter(d => wfhSelectedDays.has(d)).map(d => DOW_NAMES[d]);
       datePayload.startDate = document.getElementById('wfh-weekly-start').value.replace(/-/g,'/');
@@ -2340,6 +2429,7 @@
     document.getElementById('wfh-reason-detail-area').style.display   = 'none';
     wfhSelectedDays.clear();
     [1,2,3,4,5].forEach(d => document.getElementById('wfh-dow-' + d).classList.remove('selected'));
+    wfhMultiDates.clear();
     selectWFHType('single');
   }
 
