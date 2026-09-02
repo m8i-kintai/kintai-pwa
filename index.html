@@ -612,6 +612,7 @@
           <span class="toggle-slider"></span>
         </span>
       </label>
+      <button class="apply-screen-btn" id="approval-nav-btn" onclick="showApprovalScreen()" style="display:none;position:relative;">承認<span id="approval-badge" style="display:none;position:absolute;top:-7px;right:-7px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;background:#e05a5a;color:#fff;font-size:10px;line-height:17px;text-align:center;font-weight:700;"></span></button>
       <button class="apply-screen-btn" onclick="showApplyScreen()">各種申請</button>
       <button class="logout-btn" onclick="doLogout()">ログアウト</button>
     </div>
@@ -864,6 +865,22 @@
       <button class="modal-confirm green" id="pm-confirm" onclick="doPunch()">打刻する</button>
     </div>
   </div>
+</div>
+
+<!-- ===== 承認画面（上長用ダッシュボード） ===== -->
+<div class="screen" id="approval-screen">
+  <div class="apply-screen-header">
+    <button class="back-btn" onclick="showPunchScreen()">◀ 打刻画面</button>
+    <div style="font-size:15px;font-weight:700;color:var(--text);">承認</div>
+    <button class="back-btn" onclick="loadApprovalQueue(true)" title="再読み込み" style="min-width:44px;">↻</button>
+  </div>
+
+  <div style="padding:10px 4px 4px;color:var(--muted);font-size:12px;line-height:1.6;">
+    あなたが上長の未承認申請の一覧です。<b>承認</b>／<b>却下</b>を押すとその場で処理され、一覧から消えます。
+  </div>
+
+  <div id="approval-status" style="padding:24px 8px;text-align:center;color:var(--muted);font-size:13px;">読み込み中…</div>
+  <div id="approval-list" style="display:flex;flex-direction:column;gap:10px;padding:4px 2px 40px;"></div>
 </div>
 
 <!-- ===== 各種申請画面 ===== -->
@@ -1584,6 +1601,7 @@
     fetchTodayPunchStatus();
     restoreSavedSelections();
     updateReworkAvailability();
+    checkManagerStatus();   // 上長なら「承認」ボタンを表示
   }
 
   // STEP1：確認コードを送信
@@ -1746,7 +1764,130 @@
   }
   function showPunchScreen() {
     document.getElementById('apply-screen').style.display = 'none';
+    document.getElementById('approval-screen').style.display = 'none';
     document.getElementById('punch-screen').style.display = 'flex';
+  }
+
+  // ======== 承認ダッシュボード（上長用） ========
+  let approvalItems = [];
+
+  function escapeHtml_(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function showApprovalScreen() {
+    document.getElementById('punch-screen').style.display = 'none';
+    document.getElementById('apply-screen').style.display = 'none';
+    document.getElementById('approval-screen').style.display = 'flex';
+    document.getElementById('approval-screen').scrollTop = 0;
+    loadApprovalQueue(false);
+  }
+
+  // ログイン後に上長かどうかだけを軽量判定し、承認ボタンを出す
+  // （個人SSは開かないので速い。件数バッジは承認画面を開いたときに反映する）
+  async function checkManagerStatus() {
+    if (!currentUser) return;
+    try {
+      const data = await postJson_({ requestType: 'approvalQueue', empId: currentUser.id, summaryOnly: true });
+      const btn = document.getElementById('approval-nav-btn');
+      if (data && data.status === 'ok' && data.isManager) btn.style.display = 'inline-block';
+      else                                                btn.style.display = 'none';
+    } catch (e) { /* 判定失敗時は承認ボタンを出さない */ }
+  }
+
+  function updateApprovalBadge_(count) {
+    const badge = document.getElementById('approval-badge');
+    if (!badge) return;
+    if (count > 0) { badge.textContent = count > 99 ? '99+' : count; badge.style.display = 'block'; }
+    else           { badge.style.display = 'none'; }
+  }
+
+  async function loadApprovalQueue(isRefresh) {
+    const statusEl = document.getElementById('approval-status');
+    const listEl   = document.getElementById('approval-list');
+    statusEl.style.display = 'block';
+    statusEl.textContent = isRefresh ? '再読み込み中…' : '読み込み中…';
+    listEl.innerHTML = '';
+    try {
+      const data = await postJson_({ requestType: 'approvalQueue', empId: currentUser.id });
+      if (!data || data.status !== 'ok') { statusEl.textContent = '取得に失敗しました。' + ((data && data.message) || ''); return; }
+      approvalItems = data.items || [];
+      updateApprovalBadge_(data.count || 0);
+      renderApprovalItems_();
+    } catch (e) {
+      statusEl.textContent = '通信エラー：' + e.message;
+    }
+  }
+
+  function renderApprovalItems_() {
+    const statusEl = document.getElementById('approval-status');
+    const listEl   = document.getElementById('approval-list');
+    listEl.innerHTML = '';
+    if (!approvalItems.length) {
+      statusEl.style.display = 'block';
+      statusEl.textContent = '未承認の申請はありません 🎉';
+      return;
+    }
+    statusEl.style.display = 'none';
+    approvalItems.forEach((it, idx) => {
+      const card = document.createElement('div');
+      card.style.cssText = 'background:var(--surface);border:1px solid var(--border2);border-radius:12px;padding:12px 13px;';
+      const noteHtml = it.note ? '<div style="font-size:12px;color:var(--muted);margin-top:4px;line-height:1.5;">' + escapeHtml_(it.note) + '</div>' : '';
+      card.innerHTML =
+        '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">'
+        + '<span style="font-size:11px;font-weight:700;color:var(--accent2);background:rgba(91,110,245,0.13);border-radius:6px;padding:2px 8px;">' + escapeHtml_(it.type) + '</span>'
+        + '<span style="font-size:12px;color:var(--muted);">' + escapeHtml_(it.empName) + '（' + escapeHtml_(it.empId) + '）</span>'
+        + '</div>'
+        + '<div style="font-size:14px;font-weight:600;color:var(--text);margin-top:7px;">' + escapeHtml_(it.dateText) + '</div>'
+        + noteHtml
+        + '<div style="display:flex;gap:8px;margin-top:11px;">'
+        + '<button class="approve-btn" data-idx="' + idx + '" data-dec="approve" style="flex:1;padding:9px;border:none;border-radius:8px;background:#3dba7a;color:#fff;font-weight:700;font-size:13px;cursor:pointer;">✅ 承認</button>'
+        + '<button class="approve-btn" data-idx="' + idx + '" data-dec="reject" style="flex:1;padding:9px;border:none;border-radius:8px;background:#e05a5a;color:#fff;font-weight:700;font-size:13px;cursor:pointer;">❌ 却下</button>'
+        + '</div>';
+      listEl.appendChild(card);
+    });
+    listEl.querySelectorAll('.approve-btn').forEach(btn => {
+      btn.addEventListener('click', () => doApprovalAction_(Number(btn.dataset.idx), btn.dataset.dec, btn));
+    });
+  }
+
+  async function doApprovalAction_(idx, decision, btn) {
+    const it = approvalItems[idx];
+    if (!it) return;
+    const label = decision === 'approve' ? '承認' : '却下';
+    if (!confirm(it.empName + ' さんの「' + it.type + '（' + it.dateText + '）」を' + label + 'しますか？')) return;
+
+    // 同カードのボタンを無効化
+    const card = btn.closest('div').parentNode;
+    card.querySelectorAll('.approve-btn').forEach(b => { b.disabled = true; b.style.opacity = '0.5'; });
+    btn.textContent = '処理中…';
+
+    const payload = {
+      requestType: 'approvalAction', empId: currentUser.id, decision: decision, src: it.src
+    };
+    if (it.src === 'wfh') { payload.reqId = it.reqId; }
+    else { payload.targetEmpId = it.empId; payload.applyType = it.applyType; payload.dateRange = it.dateRange; }
+
+    try {
+      const data = await postJson_(payload);
+      if (data && data.status === 'ok') {
+        if (data.already) showToast(data.message || 'すでに処理済みでした');
+        else              showToast(label + 'しました（' + it.empName + ' さん）');
+        // 一覧から除去して再描画
+        approvalItems.splice(idx, 1);
+        updateApprovalBadge_(approvalItems.length);
+        renderApprovalItems_();
+      } else {
+        showToast('失敗：' + ((data && data.message) || '不明なエラー'));
+        card.querySelectorAll('.approve-btn').forEach(b => { b.disabled = false; b.style.opacity = '1'; });
+        renderApprovalItems_();
+      }
+    } catch (e) {
+      showToast('通信エラー：' + e.message);
+      card.querySelectorAll('.approve-btn').forEach(b => { b.disabled = false; b.style.opacity = '1'; });
+    }
   }
 
   function doLogout() {
@@ -1757,6 +1898,11 @@
     document.getElementById('break-time').textContent = '──';
     currentUser = null; selectedType = ''; selectedApplyType = null; isRemoteWork = false;
     document.getElementById('apply-screen').style.display = 'none';
+    document.getElementById('approval-screen').style.display = 'none';
+    const abtn = document.getElementById('approval-nav-btn');
+    if (abtn) abtn.style.display = 'none';
+    updateApprovalBadge_(0);
+    approvalItems = [];
     const sel = document.getElementById('type-select');
     if (sel) sel.value = '';
     const rt = document.getElementById('remote-toggle');
