@@ -1832,9 +1832,17 @@
 
   function updateApprovalBadge_(count) {
     const badge = document.getElementById('approval-badge');
-    if (!badge) return;
-    if (count > 0) { badge.textContent = count > 99 ? '99+' : count; badge.style.display = 'block'; }
-    else           { badge.style.display = 'none'; }
+    if (badge) {
+      if (count > 0) { badge.textContent = count > 99 ? '99+' : count; badge.style.display = 'block'; }
+      else           { badge.style.display = 'none'; }
+    }
+    // ホーム画面PWAのアプリアイコンにも件数を表示（対応環境のみ／iOSは通知許可後に反映）
+    try {
+      if ('setAppBadge' in navigator) {
+        if (count > 0) navigator.setAppBadge(count);
+        else           navigator.clearAppBadge();
+      }
+    } catch (e) { /* 非対応環境は無視 */ }
   }
 
   // バッジ＝自分の未承認＋（上長なら）部下の未承認。現在のリストから再計算する。
