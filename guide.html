@@ -515,6 +515,8 @@
       <li><a href="#s11">打刻修正申請</a></li>
       <li><a href="#s12">勤務表の確認（PDF）</a></li>
       <li><a href="#s13">自動で届くメール</a></li>
+      <li><a href="#s15">承認確認（申請状況・上長の承認）</a></li>
+      <li><a href="#s16">通知（プッシュ）</a></li>
       <li><a href="#s14">よくある質問</a></li>
     </ol>
   </nav>
@@ -1110,11 +1112,11 @@
   <!-- ============ 13 ============ -->
   <section id="s13">
     <h2><span class="num">13</span>自動で届くメール</h2>
-    <p class="lead">操作しなくても届くメールがあります。内容を確認して対応してください。</p>
+    <p class="lead">操作しなくても届くメールがあります。内容を確認して対応してください。（<a href="#s16" style="color:var(--accent2)">通知をオン</a>にすると、同じ内容がスマホのプッシュ通知でも届きます）</p>
 
     <div class="card">
       <h4><span class="badge b-amber">勤怠確認のお願い</span></h4>
-      <p style="margin-bottom:0">出勤から9時間10分が過ぎても退勤打刻も残業申請もない場合に届きます。退勤打刻を忘れていないか、残業申請が必要かを確認してください。</p>
+      <p style="margin-bottom:0">出勤から9時間10分が過ぎても退勤打刻も残業申請もない場合に届きます。退勤打刻を忘れていないか、残業申請が必要かを確認してください。<br>※早出・通常は<b>9:00起算</b>で判定します（9時前に出勤しても9:00＋9時間10分が目安）。フレックス・遅出は実際の出勤打刻から起算します。</p>
     </div>
 
     <div class="card">
@@ -1124,7 +1126,12 @@
 
     <div class="card">
       <h4><span class="badge b-green">申請の承認・却下通知</span></h4>
-      <p style="margin-bottom:0">提出した申請を上長が処理すると届きます。却下された場合は理由を上長に確認してください。</p>
+      <p style="margin-bottom:0">提出した申請を上長が処理すると届きます。却下された場合は理由を上長に確認してください。状況は<a href="#s15" style="color:var(--accent2)">承認確認</a>でも見られます。</p>
+    </div>
+
+    <div class="note note-info" style="margin-top:10px">
+      <strong>上長の方へ：承認はアプリで行います</strong>
+      申請が届いたお知らせメールに<b>承認/却下ボタンはありません</b>。<a href="#s15" style="color:var(--accent2)">承認確認</a>から承認・却下してください。
     </div>
 
     <div class="card">
@@ -1133,9 +1140,74 @@
     </div>
   </section>
 
-  <!-- ============ 14 ============ -->
+  <!-- ============ 14 承認確認 ============ -->
+  <section id="s15">
+    <h2><span class="num">14</span>承認確認（申請状況の確認・上長の承認）</h2>
+    <p class="lead">打刻画面の上部にある<strong>「承認確認」</strong>ボタンから、申請の状況を確認できます。未承認があるとボタンに赤い数字が付きます。</p>
+
+    <h3>自分の申請状況（全員）</h3>
+    <p>自分が出した申請が、状態つきで一覧表示されます。</p>
+    <ul class="plain">
+      <li><span style="display:inline-block;font-size:12px;font-weight:700;color:#fff;background:#e5a84b;border-radius:6px;padding:1px 9px;">未承認</span>　上長がまだ処理していない</li>
+      <li><span style="display:inline-block;font-size:12px;font-weight:700;color:#fff;background:#3dba7a;border-radius:6px;padding:1px 9px;">承認済み</span>　承認された</li>
+      <li><span style="display:inline-block;font-size:12px;font-weight:700;color:#fff;background:#e05a5a;border-radius:6px;padding:1px 9px;">却下</span>　却下された</li>
+    </ul>
+    <div class="note note-info">
+      <strong>承認済み・却下は3日で自動的に消えます</strong>
+      決定から3日たった申請は一覧から自動で消えます（未承認は処理されるまで残ります）。赤いバッジの数字は<b>未承認の件数だけ</b>を表します。
+    </div>
+
+    <h3>部下の承認（上長のみ）</h3>
+    <p>あなたが上長の場合、「承認確認」の下の方に<strong>「承認する（部下の申請）」</strong>が表示され、部下の未承認申請を<b>その場で承認／却下</b>できます。</p>
+    <ol class="steps">
+      <li><strong>「承認確認」</strong>を開く</li>
+      <li>部下のカードの <strong>✅承認</strong> または <strong>❌却下</strong> を押す</li>
+      <li>処理するとカードは一覧から消え、勤務表への反映と申請者への通知が自動で行われます</li>
+    </ol>
+    <div class="note note-info">
+      <strong>承認はアプリで完結します</strong>
+      これまで上長宛メールにあった「承認する／却下する」ボタンは廃止しました。メールは<b>お知らせ</b>のみになり、承認・却下は<b>この「承認確認」画面</b>から行ってください。
+    </div>
+  </section>
+
+  <!-- ============ 15 通知 ============ -->
+  <section id="s16">
+    <h2><span class="num">15</span>通知（プッシュ）</h2>
+    <p class="lead">スマホのホーム画面に、LINEのような<strong>プッシュ通知</strong>を受け取れます（アプリを閉じていても届きます）。</p>
+
+    <h3>通知をオンにする</h3>
+    <ol class="steps">
+      <li>画面の<strong>⚙（設定）</strong>を開く</li>
+      <li><strong>「通知（プッシュ）」</strong>の <strong>🔔 通知をオンにする</strong> を押す</li>
+      <li>表示される許可ダイアログで<strong>「許可」</strong></li>
+    </ol>
+    <div class="note note-warn">
+      <strong>iPhoneの方へ</strong>
+      iOSは<strong>ホーム画面に追加したアプリ</strong>から通知をオンにしてください（Safariのタブからは不可・iOS16.4以降）。
+    </div>
+
+    <h3>届く通知</h3>
+    <div class="card">
+      <h4><span class="badge b-green">承認依頼（上長へ）</span></h4>
+      <p style="margin-bottom:0">部下が申請すると上長に届きます。「承認確認」から処理してください。</p>
+    </div>
+    <div class="card">
+      <h4><span class="badge b-accent">申請結果のお知らせ（申請者へ）</span></h4>
+      <p style="margin-bottom:0">自分の申請が承認／却下されると届きます。</p>
+    </div>
+    <div class="card">
+      <h4><span class="badge b-amber">残業・休日出勤の申請もれ</span></h4>
+      <p style="margin-bottom:0">残業申請や休日出勤申請が必要そうなのに未提出のときにお知らせします。</p>
+    </div>
+    <div class="note note-info">
+      <strong>アイコンに未承認の数が出ます</strong>
+      対応端末では、ホーム画面のアプリアイコンに<b>未承認の件数</b>がバッジで表示されます。
+    </div>
+  </section>
+
+  <!-- ============ 16 ============ -->
   <section id="s14">
-    <h2><span class="num">14</span>よくある質問</h2>
+    <h2><span class="num">16</span>よくある質問</h2>
 
     <details class="faq">
       <summary>出勤ボタンが押せません</summary>
