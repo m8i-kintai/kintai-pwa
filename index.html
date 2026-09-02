@@ -612,7 +612,7 @@
           <span class="toggle-slider"></span>
         </span>
       </label>
-      <button class="apply-screen-btn" id="approval-nav-btn" onclick="showApprovalScreen()" style="display:none;position:relative;">承認<span id="approval-badge" style="display:none;position:absolute;top:-7px;right:-7px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;background:#e05a5a;color:#fff;font-size:10px;line-height:17px;text-align:center;font-weight:700;"></span></button>
+      <button class="apply-screen-btn" id="approval-nav-btn" onclick="showApprovalScreen()" style="display:none;position:relative;">承認確認<span id="approval-badge" style="display:none;position:absolute;top:-7px;right:-7px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;background:#e05a5a;color:#fff;font-size:10px;line-height:17px;text-align:center;font-weight:700;"></span></button>
       <button class="apply-screen-btn" onclick="showApplyScreen()">各種申請</button>
       <button class="logout-btn" onclick="doLogout()">ログアウト</button>
     </div>
@@ -867,20 +867,35 @@
   </div>
 </div>
 
-<!-- ===== 承認画面（上長用ダッシュボード） ===== -->
+<!-- ===== 承認確認画面 ===== -->
 <div class="screen" id="approval-screen">
   <div class="apply-screen-header">
     <button class="back-btn" onclick="showPunchScreen()">◀ 打刻画面</button>
-    <div style="font-size:15px;font-weight:700;color:var(--text);">承認</div>
+    <div style="font-size:15px;font-weight:700;color:var(--text);">承認確認</div>
     <button class="back-btn" onclick="loadApprovalQueue(true)" title="再読み込み" style="min-width:44px;">↻</button>
   </div>
 
-  <div style="padding:10px 4px 4px;color:var(--muted);font-size:12px;line-height:1.6;">
-    あなたが上長の未承認申請の一覧です。<b>承認</b>／<b>却下</b>を押すとその場で処理され、一覧から消えます。
+  <div id="approval-status" style="padding:24px 8px;text-align:center;color:var(--muted);font-size:13px;">読み込み中…</div>
+
+  <!-- 自分の申請状況（全員） -->
+  <div id="approval-my-section" style="display:none;">
+    <div style="padding:12px 4px 2px;font-size:14px;font-weight:700;color:var(--text);">自分の申請状況</div>
+    <div style="padding:0 4px 6px;color:var(--muted);font-size:11px;line-height:1.6;">
+      承認済み・却下は<b>3日たつと自動で消えます</b>。
+    </div>
+    <div id="approval-my-list" style="display:flex;flex-direction:column;gap:8px;padding:2px 2px 8px;"></div>
   </div>
 
-  <div id="approval-status" style="padding:24px 8px;text-align:center;color:var(--muted);font-size:13px;">読み込み中…</div>
-  <div id="approval-list" style="display:flex;flex-direction:column;gap:10px;padding:4px 2px 40px;"></div>
+  <!-- 部下の承認（上長のみ） -->
+  <div id="approval-mgr-section" style="display:none;">
+    <div style="padding:16px 4px 2px;font-size:14px;font-weight:700;color:var(--text);">
+      承認する（部下の申請）<span id="approval-mgr-count" style="color:var(--muted);font-weight:400;font-size:12px;"></span>
+    </div>
+    <div style="padding:0 4px 6px;color:var(--muted);font-size:11px;line-height:1.6;">
+      <b>承認</b>／<b>却下</b>を押すとその場で処理され、一覧から消えます。
+    </div>
+    <div id="approval-list" style="display:flex;flex-direction:column;gap:10px;padding:2px 2px 40px;"></div>
+  </div>
 </div>
 
 <!-- ===== 各種申請画面 ===== -->
@@ -1768,8 +1783,10 @@
     document.getElementById('punch-screen').style.display = 'flex';
   }
 
-  // ======== 承認ダッシュボード（上長用） ========
-  let approvalItems = [];
+  // ======== 承認確認（自分の申請状況＋上長は部下の承認） ========
+  let approvalItems = [];        // 部下の未承認（上長のみ）
+  let myAppItems    = [];        // 自分の申請状況（全員）
+  let isManagerUser = false;
 
   function escapeHtml_(s) {
     return String(s == null ? '' : s)
@@ -1785,16 +1802,24 @@
     loadApprovalQueue(false);
   }
 
-  // ログイン後に上長かどうかだけを軽量判定し、承認ボタンを出す
-  // （個人SSは開かないので速い。件数バッジは承認画面を開いたときに反映する）
+  // ログイン後：軽量判定（自分の当月分のみ）で「承認確認」ボタンとバッジを出す。
+  // ボタンは全員に表示する（自分の申請状況を確認できるため）。
   async function checkManagerStatus() {
     if (!currentUser) return;
     try {
       const data = await postJson_({ requestType: 'approvalQueue', empId: currentUser.id, summaryOnly: true });
       const btn = document.getElementById('approval-nav-btn');
-      if (data && data.status === 'ok' && data.isManager) btn.style.display = 'inline-block';
-      else                                                btn.style.display = 'none';
-    } catch (e) { /* 判定失敗時は承認ボタンを出さない */ }
+      if (data && data.status === 'ok') {
+        isManagerUser = !!data.isManager;
+        btn.style.display = 'inline-block';
+        updateApprovalBadge_(data.myCount || 0);
+      } else {
+        btn.style.display = 'inline-block';   // 判定失敗でも自分の状況は見られるように出す
+      }
+    } catch (e) {
+      const btn = document.getElementById('approval-nav-btn');
+      if (btn) btn.style.display = 'inline-block';
+    }
   }
 
   function updateApprovalBadge_(count) {
@@ -1806,31 +1831,68 @@
 
   async function loadApprovalQueue(isRefresh) {
     const statusEl = document.getElementById('approval-status');
-    const listEl   = document.getElementById('approval-list');
     statusEl.style.display = 'block';
     statusEl.textContent = isRefresh ? '再読み込み中…' : '読み込み中…';
-    listEl.innerHTML = '';
+    document.getElementById('approval-my-section').style.display = 'none';
+    document.getElementById('approval-mgr-section').style.display = 'none';
     try {
       const data = await postJson_({ requestType: 'approvalQueue', empId: currentUser.id });
       if (!data || data.status !== 'ok') { statusEl.textContent = '取得に失敗しました。' + ((data && data.message) || ''); return; }
-      approvalItems = data.items || [];
-      updateApprovalBadge_(data.count || 0);
+      isManagerUser = !!data.isManager;
+      myAppItems    = data.myItems || [];
+      approvalItems = data.pending || data.items || [];
+      updateApprovalBadge_(myAppItems.length);
+      statusEl.style.display = 'none';
+      renderMyItems_();
       renderApprovalItems_();
     } catch (e) {
       statusEl.textContent = '通信エラー：' + e.message;
     }
   }
 
-  function renderApprovalItems_() {
-    const statusEl = document.getElementById('approval-status');
-    const listEl   = document.getElementById('approval-list');
-    listEl.innerHTML = '';
-    if (!approvalItems.length) {
-      statusEl.style.display = 'block';
-      statusEl.textContent = '未承認の申請はありません 🎉';
+  // 自分の申請状況（全員に表示）
+  function renderMyItems_() {
+    const sec  = document.getElementById('approval-my-section');
+    const list = document.getElementById('approval-my-list');
+    sec.style.display = 'block';
+    list.innerHTML = '';
+    if (!myAppItems.length) {
+      list.innerHTML = '<div style="padding:14px 8px;color:var(--muted);font-size:12px;">申請はありません。</div>';
       return;
     }
-    statusEl.style.display = 'none';
+    const chip = (st) => {
+      const map = { '未承認': ['#e5a84b', '未承認'], '承認済み': ['#3dba7a', '承認済み'], '却下': ['#e05a5a', '却下'] };
+      const c = map[st] || ['#8a8a99', st];
+      return '<span style="font-size:11px;font-weight:700;color:#fff;background:' + c[0] + ';border-radius:6px;padding:2px 9px;">' + escapeHtml_(c[1]) + '</span>';
+    };
+    myAppItems.forEach((it) => {
+      const el = document.createElement('div');
+      el.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 12px;';
+      const noteHtml = it.note ? '<div style="font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.5;">' + escapeHtml_(it.note) + '</div>' : '';
+      el.innerHTML =
+        '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">'
+        + '<span style="font-size:13px;font-weight:600;color:var(--text);">' + escapeHtml_(it.type) + '</span>'
+        + chip(it.status)
+        + '</div>'
+        + '<div style="font-size:13px;color:var(--text);margin-top:5px;">' + escapeHtml_(it.dateText) + '</div>'
+        + noteHtml;
+      list.appendChild(el);
+    });
+  }
+
+  // 部下の未承認（上長のみ表示）
+  function renderApprovalItems_() {
+    const sec     = document.getElementById('approval-mgr-section');
+    const listEl  = document.getElementById('approval-list');
+    const countEl = document.getElementById('approval-mgr-count');
+    if (!isManagerUser) { sec.style.display = 'none'; return; }
+    sec.style.display = 'block';
+    listEl.innerHTML = '';
+    countEl.textContent = approvalItems.length ? '　' + approvalItems.length + '件' : '';
+    if (!approvalItems.length) {
+      listEl.innerHTML = '<div style="padding:14px 8px;color:var(--muted);font-size:12px;">未承認の申請はありません 🎉</div>';
+      return;
+    }
     approvalItems.forEach((it, idx) => {
       const card = document.createElement('div');
       card.style.cssText = 'background:var(--surface);border:1px solid var(--border2);border-radius:12px;padding:12px 13px;';
@@ -1875,9 +1937,8 @@
       if (data && data.status === 'ok') {
         if (data.already) showToast(data.message || 'すでに処理済みでした');
         else              showToast(label + 'しました（' + it.empName + ' さん）');
-        // 一覧から除去して再描画
+        // 一覧から除去して再描画（バッジは自分の申請状況の件数を示すので変更しない）
         approvalItems.splice(idx, 1);
-        updateApprovalBadge_(approvalItems.length);
         renderApprovalItems_();
       } else {
         showToast('失敗：' + ((data && data.message) || '不明なエラー'));
@@ -1902,7 +1963,7 @@
     const abtn = document.getElementById('approval-nav-btn');
     if (abtn) abtn.style.display = 'none';
     updateApprovalBadge_(0);
-    approvalItems = [];
+    approvalItems = []; myAppItems = []; isManagerUser = false;
     const sel = document.getElementById('type-select');
     if (sel) sel.value = '';
     const rt = document.getElementById('remote-toggle');
