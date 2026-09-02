@@ -1888,12 +1888,41 @@
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
+  const APPROVAL_CACHE = (id) => 'approvalCache_' + id;
+
+  function saveApprovalCache_() {
+    if (!currentUser) return;
+    try {
+      lsSet_(APPROVAL_CACHE(currentUser.id), JSON.stringify({
+        isManager: isManagerUser, myItems: myAppItems, pending: approvalItems, ts: Date.now()
+      }));
+    } catch (e) {}
+  }
+
   function showApprovalScreen() {
     document.getElementById('punch-screen').style.display = 'none';
     document.getElementById('apply-screen').style.display = 'none';
     document.getElementById('approval-screen').style.display = 'flex';
     document.getElementById('approval-screen').scrollTop = 0;
-    loadApprovalQueue(false);
+
+    // 前回の内容が残っていれば即表示（読込中を出さず、裏で最新に更新）
+    let shownCache = false;
+    try {
+      const raw = lsGet_(APPROVAL_CACHE(currentUser.id));
+      if (raw) {
+        const c = JSON.parse(raw);
+        isManagerUser = !!c.isManager;
+        myAppItems    = c.myItems || [];
+        approvalItems = c.pending || [];
+        document.getElementById('approval-status').style.display = 'none';
+        renderMyItems_();
+        renderApprovalItems_();
+        refreshBadge_();
+        shownCache = true;
+      }
+    } catch (e) {}
+
+    loadApprovalQueue(false, shownCache);   // shownCache=true のときは裏で静かに更新
   }
 
   // ログイン後：軽量判定（自分の当月分のみ）で「承認確認」ボタンとバッジを出す。
@@ -1939,24 +1968,30 @@
     updateApprovalBadge_(myPending + subPending);
   }
 
-  async function loadApprovalQueue(isRefresh) {
+  async function loadApprovalQueue(isRefresh, silent) {
     const statusEl = document.getElementById('approval-status');
-    statusEl.style.display = 'block';
-    statusEl.textContent = isRefresh ? '再読み込み中…' : '読み込み中…';
-    document.getElementById('approval-my-section').style.display = 'none';
-    document.getElementById('approval-mgr-section').style.display = 'none';
+    if (!silent) {
+      statusEl.style.display = 'block';
+      statusEl.textContent = isRefresh ? '再読み込み中…' : '読み込み中…';
+      document.getElementById('approval-my-section').style.display = 'none';
+      document.getElementById('approval-mgr-section').style.display = 'none';
+    }
     try {
       const data = await postJson_({ requestType: 'approvalQueue', empId: currentUser.id });
-      if (!data || data.status !== 'ok') { statusEl.textContent = '取得に失敗しました。' + ((data && data.message) || ''); return; }
+      if (!data || data.status !== 'ok') {
+        if (!silent) statusEl.textContent = '取得に失敗しました。' + ((data && data.message) || '');
+        return;
+      }
       isManagerUser = !!data.isManager;
       myAppItems    = data.myItems || [];
       approvalItems = data.pending || data.items || [];
-      refreshBadge_();   // 自分の未承認＋（上長なら）部下の未承認
+      saveApprovalCache_();   // 次回すぐ表示できるよう保存
+      refreshBadge_();        // 自分の未承認＋（上長なら）部下の未承認
       statusEl.style.display = 'none';
       renderMyItems_();
       renderApprovalItems_();
     } catch (e) {
-      statusEl.textContent = '通信エラー：' + e.message;
+      if (!silent) statusEl.textContent = '通信エラー：' + e.message;
     }
   }
 
@@ -2051,6 +2086,7 @@
         approvalItems.splice(idx, 1);
         renderApprovalItems_();
         refreshBadge_();
+        saveApprovalCache_();
       } else {
         showToast('失敗：' + ((data && data.message) || '不明なエラー'));
         card.querySelectorAll('.approve-btn').forEach(b => { b.disabled = false; b.style.opacity = '1'; });
