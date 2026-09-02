@@ -5,7 +5,7 @@
 //  (2) アプリ枠(HTML/ロゴ等)をキャッシュしてオフライン耐性・起動高速化
 // 重要: GAS等クロスオリジンの通信(ログイン・打刻・申請のPOST)は絶対に横取りしない
 const CACHE  = 'kinjiro-v3';
-const ASSETS = ['./', './index.html', './manifest.json', './logo.png', './imnz6099.png', './guide.html'];
+const ASSETS = ['./', './index.html', './manifest.json', './logo.png', './imnz6098.png', './guide.html'];
 
 // ===== Firebase Cloud Messaging（Web Push・バックグラウンド受信） =====
 try {
@@ -26,8 +26,8 @@ try {
     const title = d.title || 'キンジロー君';
     const opts = {
       body: d.body || '',
-      icon: './imnz6099.png',
-      badge: './imnz6099.png',
+      icon: './imnz6098.png',
+      badge: './imnz6098.png',
       data: d
     };
     if (d.tag) opts.tag = d.tag;
