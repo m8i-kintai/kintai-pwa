@@ -1447,6 +1447,9 @@
       <button data-theme="dark" onclick="setTheme('dark')">ダーク</button>
       <button data-theme="light" onclick="setTheme('light')">ライト</button>
     </div>
+    <div class="set-label" style="margin-top:16px;">通知（プッシュ）</div>
+    <div id="notify-status" style="color:var(--muted);font-size:12px;line-height:1.6;margin-bottom:8px;">残業・休日出勤の申請もれや、承認依頼をお知らせします。</div>
+    <button id="notify-btn" class="settings-btn" style="width:100%;padding:10px;font-size:13px;" onclick="enableNotifications()">🔔 通知をオンにする</button>
     <div class="modal-btns" style="margin-top:22px;grid-template-columns:1fr;">
       <button class="modal-confirm" style="background:var(--accent)" onclick="closeModal('settings-modal')">閉じる</button>
     </div>
@@ -1455,12 +1458,96 @@
 
 <div class="toast" id="toast"></div>
 
+<!-- Firebase (FCM) SDK：Web Push通知用。compat版をCDNから読み込み -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
+
 <script>
   // GAS WebアプリURL（ログイン認証用）
   const GAS_URL = 'https://script.google.com/macros/s/AKfycbwqHY61IztIFfffexd1kx4SL_K6ii5gaLjujCy0jasF_4mmGyU6zdxmzk5yAGxIB8nLyA/exec';
 
   // フォーム回答GAS URL（打刻状況取得用）
   const FORM_GAS_URL = 'https://script.google.com/macros/s/AKfycbwK0SQLka03L92M0r9JnzykBLpTcu-G4r0aCH6bwudICZVSCKMSDsGca93cZTywNSKZRg/exec';
+
+  // ===== Firebase / FCM（Web Push通知）=====
+  const FIREBASE_CONFIG = {
+    apiKey: "AIzaSyCAqTSOoSpaLFLD6Rymn4C83iPM0reiUyk",
+    authDomain: "kinjiro-2501b.firebaseapp.com",
+    projectId: "kinjiro-2501b",
+    storageBucket: "kinjiro-2501b.firebasestorage.app",
+    messagingSenderId: "873236888749",
+    appId: "1:873236888749:web:3244e66189cd187ef45a24"
+  };
+  const FCM_VAPID_KEY = 'BAELKnZRzX-pFmebryoi2XMszqjfXoZnSy0JqeBTBaGTqEsk5Nu4N3zv3D-rsERaGrdHHeqBjVQMhdDnIJvxH9k';
+  let fcmMessaging = null;
+
+  // FCM初期化（対応環境のみ。未対応なら null）
+  function initFcm_() {
+    if (fcmMessaging) return fcmMessaging;
+    try {
+      if (typeof firebase === 'undefined' || !firebase.messaging) return null;
+      if (!firebase.apps || !firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+      fcmMessaging = firebase.messaging();
+      // アプリを開いている間に届いた通知（フォアグラウンド）
+      fcmMessaging.onMessage(function(payload) {
+        const d = (payload && payload.data) || {};
+        if (d.title || d.body) showToast((d.title ? d.title + '：' : '') + (d.body || ''));
+        // バッジ更新（届いた件数があれば反映）
+        if (d.badge != null && d.badge !== '') {
+          const n = parseInt(d.badge, 10);
+          if (!isNaN(n)) updateApprovalBadge_(n);
+        }
+      });
+    } catch (e) { fcmMessaging = null; }
+    return fcmMessaging;
+  }
+
+  // 通知を有効化（許可 → トークン取得 → GASへ保存）
+  async function enableNotifications() {
+    if (!currentUser) { showToast('先にログインしてください'); return; }
+    if (!('Notification' in window) || !('serviceWorker' in navigator)) {
+      showToast('この端末は通知に対応していません'); return;
+    }
+    const m = initFcm_();
+    if (!m) { showToast('通知の初期化に失敗しました'); return; }
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') { showToast('通知が許可されませんでした'); updateNotifyUI_(); return; }
+      const reg = await navigator.serviceWorker.ready;
+      const token = await m.getToken({ vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: reg });
+      if (!token) { showToast('通知トークンを取得できませんでした'); return; }
+      await postJson_({ requestType: 'savePushToken', empId: currentUser.id, token: token, ua: navigator.userAgent });
+      lsSet_('fcmToken', token);
+      showToast('通知をオンにしました 🔔');
+      updateNotifyUI_();
+    } catch (e) {
+      showToast('通知の設定に失敗：' + (e && e.message ? e.message : e));
+    }
+  }
+
+  // 設定モーダルの通知UIを現在の許可状態に合わせる
+  function updateNotifyUI_() {
+    const btn = document.getElementById('notify-btn');
+    const st  = document.getElementById('notify-status');
+    if (!btn || !st) return;
+    const supported = ('Notification' in window) && ('serviceWorker' in navigator);
+    if (!supported) {
+      btn.style.display = 'none';
+      st.textContent = 'この端末は通知に対応していません。';
+      return;
+    }
+    const perm = Notification.permission;
+    if (perm === 'granted') {
+      btn.textContent = '🔔 通知はオンです（再設定）';
+      st.textContent  = 'この端末で通知を受け取れます。';
+    } else if (perm === 'denied') {
+      btn.textContent = '🔔 通知をオンにする';
+      st.textContent  = '通知がブロックされています。端末のブラウザ設定から許可してください。';
+    } else {
+      btn.textContent = '🔔 通知をオンにする';
+      st.textContent  = '残業・休日出勤の申請もれや、承認依頼をお知らせします。';
+    }
+  }
 
   // Googleフォーム送信URL（打刻用・アカウント不要）
   const FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSfh5yZ0xR3-GcQ1si6qbtCiik2pSC7dWJEIsRAYK6a-CytwJw/formResponse';
@@ -3346,6 +3433,7 @@
     const zoom  = lsGet_('uiZoom')  || '1';
     const theme = lsGet_('uiTheme') || 'dark';
     syncSettingsUI(zoom, theme);
+    updateNotifyUI_();
     document.getElementById('settings-modal').classList.add('show');
   }
 
