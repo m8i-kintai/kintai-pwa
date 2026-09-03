@@ -4,7 +4,7 @@
 //      → 端末記憶が定着し、2回目以降はメール/コード無しで自動ログインできる
 //  (2) アプリ枠(HTML/ロゴ等)をキャッシュしてオフライン耐性・起動高速化
 // 重要: GAS等クロスオリジンの通信(ログイン・打刻・申請のPOST)は絶対に横取りしない
-const CACHE  = 'kinjiro-v3';
+const CACHE  = 'kinjiro-v4';
 const ASSETS = ['./', './index.html', './manifest.json', './logo.png', './imnz6098.png', './guide.html'];
 
 // ===== Firebase Cloud Messaging（Web Push・バックグラウンド受信） =====
@@ -32,11 +32,13 @@ try {
     };
     if (d.tag) opts.tag = d.tag;
     self.registration.showNotification(title, opts);
-    // ホーム画面アイコンのバッジも更新
+    // ホーム画面アイコンのバッジを更新（件数が同梱されている時だけ。未指定なら現状維持）
     try {
-      const c = parseInt(d.badge || '0', 10);
-      if (self.navigator && 'setAppBadge' in self.navigator) {
-        if (c > 0) self.navigator.setAppBadge(c); else self.navigator.clearAppBadge();
+      if (typeof d.badge !== 'undefined' && d.badge !== '') {
+        const c = parseInt(d.badge, 10);
+        if (!isNaN(c) && self.navigator && 'setAppBadge' in self.navigator) {
+          if (c > 0) self.navigator.setAppBadge(c); else self.navigator.clearAppBadge();
+        }
       }
     } catch (e) {}
   });
