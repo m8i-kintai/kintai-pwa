@@ -628,6 +628,13 @@
     <div class="clock-time" id="clock-time">--:--:--</div>
   </div>
 
+  <!-- 前日から続く未退勤（徹夜シフト）の案内 -->
+  <div id="overnight-banner" style="display:none;background:rgba(224,168,75,0.14);border:1px solid rgba(224,168,75,0.5);border-radius:10px;padding:10px 12px;font-size:12.5px;color:var(--text);line-height:1.6;">
+    <b id="overnight-msg"></b><br>
+    退勤ボタンを押すと<b>前日の勤務の退勤</b>として記録されます（深夜0時以降は24時以降の時刻で記録）。<br>
+    <a href="javascript:void(0)" onclick="discardOvernight_()" style="color:var(--accent2);font-weight:600;">→ 新しい勤務を始める（この案内を消す）</a>
+  </div>
+
   <div>
     <div class="section-label">本日の打刻</div>
     <div class="status-row">
@@ -1209,7 +1216,12 @@
       </div>
       <div>
         <div class="field-label" style="margin-bottom:6px">修正時間（必須）</div>
-        <input class="field-input" id="correct-time" type="time" required style="font-size:16px;width:100%">
+        <div style="display:flex;align-items:center;gap:8px">
+          <select class="field-input" id="correct-hour" style="font-size:16px;flex:1"></select>
+          <span style="font-weight:700;color:var(--text)">:</span>
+          <select class="field-input" id="correct-min" style="font-size:16px;flex:1"></select>
+        </div>
+        <div class="work-note" style="margin-top:6px">退勤が深夜0時を過ぎた日は<b>24以降</b>を選びます（例：翌1:00→<b>25</b>、翌5:00→<b>29</b>）。</div>
       </div>
       <div class="work-field">
         <div class="field-label">修正理由（必須）</div>
@@ -1617,6 +1629,89 @@
     // 規定外休憩／時間外移動 修正：本日を上限
     const fgDateEl = document.getElementById('fg-date');
     if (fgDateEl) { fgDateEl.max = today; fgDateEl.value = today; }
+    populateCorrectTime_();
+  }
+
+  // 打刻修正の時間プルダウン（時:0〜35／分:0〜59）を用意する。
+  // 退勤が深夜0時を過ぎる場合に 24〜35 を選べるようにする（例：翌5:00＝29）。
+  function populateCorrectTime_() {
+    const hEl = document.getElementById('correct-hour');
+    const mEl = document.getElementById('correct-min');
+    if (!hEl || !mEl || hEl.options.length) return;   // 既に生成済みなら何もしない
+    let ho = '<option value="">--</option>';
+    for (let h = 0; h <= 35; h++) ho += '<option value="' + h + '">' + h + '</option>';
+    hEl.innerHTML = ho;
+    let mo = '<option value="">--</option>';
+    for (let m = 0; m <= 59; m++) mo += '<option value="' + String(m).padStart(2,'0') + '">' + String(m).padStart(2,'0') + '</option>';
+    mEl.innerHTML = mo;
+  }
+
+  // 選択された修正時間を "H:MM" 文字列で返す（未選択なら ''）
+  function correctTimeValue_() {
+    const h = document.getElementById('correct-hour').value;
+    const m = document.getElementById('correct-min').value;
+    if (h === '' || m === '') return '';
+    return h + ':' + m;
+  }
+
+  // ======== 徹夜シフト（前日から続く未退勤）の持ち越し ========
+  let overnightWorkDate = null;   // 'YYYY/MM/DD'（前日の未退勤を持ち越し中のみセット）
+
+  // 前日ぶんの未退勤を持ち越すか判定（前日 かつ 出勤済み・未退勤 かつ 15時前）
+  function carryOvernightShift_(state, now) {
+    if (!state || !state.checkinDone || state.checkoutDone) return false;
+    const p = String(state.date).split('-');
+    if (p.length !== 3) return false;
+    const wd = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+    const td = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const daysDiff = Math.round((td - wd) / 86400000);
+    if (daysDiff !== 1) return false;         // 前日ぶんのみ（それ以前は打刻修正で対応）
+    if (now.getHours() >= 15) return false;   // 15時以降は入れ忘れとみなし持ち越さない
+    overnightWorkDate = Number(p[0]) + '/' + String(Number(p[1])).padStart(2, '0') + '/' + String(Number(p[2])).padStart(2, '0');
+    return true;
+  }
+
+  function showOvernightBanner_() {
+    const b = document.getElementById('overnight-banner');
+    const m = document.getElementById('overnight-msg');
+    if (!b || !m || !overnightWorkDate) return;
+    const p = overnightWorkDate.split('/');
+    m.textContent = '前日（' + Number(p[1]) + '/' + Number(p[2]) + '）の勤務が未退勤です。';
+    b.style.display = 'block';
+  }
+  function hideOvernightBanner_() {
+    const b = document.getElementById('overnight-banner');
+    if (b) b.style.display = 'none';
+  }
+
+  // 「新しい勤務を始める」：持ち越しを破棄して今日の初期状態に戻す
+  function discardOvernight_() {
+    overnightWorkDate = null;
+    hideOvernightBanner_();
+    try { localStorage.removeItem('punchState_' + currentUser.id); } catch(e) {}
+    document.getElementById('status-checkin').textContent  = '──';
+    document.getElementById('status-checkout').textContent = '──';
+    document.getElementById('status-checkin').className  = 'status-value';
+    document.getElementById('status-checkout').className = 'status-value';
+    document.getElementById('btn-checkin').disabled  = false;
+    document.getElementById('btn-checkout').disabled = true;
+    document.getElementById('break-time').textContent = '──';
+    document.getElementById('move-time').textContent  = '──';
+    document.getElementById('history-list').innerHTML = '';
+    selectedType = '';
+    const sel = document.getElementById('type-select'); if (sel) sel.value = '';
+  }
+
+  // 徹夜シフトの退勤用 {date, time}（24時以降表現）。持ち越し中のみ返す。
+  function overnightCheckout_(now) {
+    if (!overnightWorkDate) return null;
+    const wdD = new Date(overnightWorkDate);
+    const td  = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const daysDiff = Math.round((td - wdD) / 86400000);
+    if (daysDiff < 1) return null;
+    const pad = n => String(n).padStart(2, '0');
+    const oh  = now.getHours() + 24 * daysDiff;
+    return { date: overnightWorkDate, time: pad(oh) + ':' + pad(now.getMinutes()) };
   }
 
   // ======== 打刻状態の保存・復元（0時にリセット） ========
@@ -1645,8 +1740,27 @@
     const nowL = new Date();
     const today = `${nowL.getFullYear()}-${String(nowL.getMonth()+1).padStart(2,'0')}-${String(nowL.getDate()).padStart(2,'0')}`;
 
-    // 今日のデータのみ復元（0時を過ぎたら無視）
+    // 今日のデータのみ復元（0時を過ぎたら無視）。
+    // ただし前日から続く未退勤（徹夜シフト）は持ち越して、退勤できるようにする。
     if (state.date !== today) {
+      if (carryOvernightShift_(state, nowL)) {
+        if (state.checkin !== '──') {
+          document.getElementById('status-checkin').textContent = state.checkin;
+          document.getElementById('status-checkin').className   = 'status-value recorded';
+        }
+        if (state.breakTime && state.breakTime !== '──') document.getElementById('break-time').textContent = state.breakTime;
+        if (state.moveTime  && state.moveTime  !== '──') document.getElementById('move-time').textContent  = state.moveTime;
+        if (state.history) document.getElementById('history-list').innerHTML = state.history;
+        if (state.punchType) {
+          selectedType = state.punchType;
+          const sel = document.getElementById('type-select');
+          if (sel) sel.value = state.punchType;
+        }
+        document.getElementById('btn-checkin').disabled  = true;
+        document.getElementById('btn-checkout').disabled = false;
+        showOvernightBanner_();
+        return;
+      }
       localStorage.removeItem('punchState_' + currentUser.id);
       return;
     }
@@ -2166,8 +2280,13 @@
 
     pendingAction = action;
     const now = new Date();
-    const t   = now.toLocaleTimeString('ja-JP');
-    const d   = `${now.getFullYear()}/${String(now.getMonth()+1).padStart(2,'0')}/${String(now.getDate()).padStart(2,'0')}`;
+    let t   = now.toLocaleTimeString('ja-JP');
+    let d   = `${now.getFullYear()}/${String(now.getMonth()+1).padStart(2,'0')}/${String(now.getDate()).padStart(2,'0')}`;
+    // 徹夜シフトの退勤は、出勤日の日付＋24時以降の時刻で確認表示する
+    if (action === 'checkout') {
+      const ov = overnightCheckout_(now);
+      if (ov) { t = ov.time; d = ov.date; }
+    }
     document.getElementById('pm-title').textContent = action === 'checkin' ? '出勤打刻の確認' : '退勤打刻の確認';
     document.getElementById('pm-type').textContent  = selectedType;
     document.getElementById('pm-time').textContent  = t;
@@ -2210,8 +2329,14 @@
     }
 
     const pad = n => String(n).padStart(2, '0');
-    const t = `${pad(punchTime.getHours())}:${pad(punchTime.getMinutes())}:${pad(punchTime.getSeconds())}`;
-    const d = `${now.getFullYear()}/${pad(now.getMonth()+1)}/${pad(now.getDate())}`;
+    let t = `${pad(punchTime.getHours())}:${pad(punchTime.getMinutes())}:${pad(punchTime.getSeconds())}`;
+    let d = `${now.getFullYear()}/${pad(now.getMonth()+1)}/${pad(now.getDate())}`;
+    // 徹夜シフト：前日ぶんの退勤は、出勤日の行へ24時以降の時刻で記録する
+    let overnight = null;
+    if (label === '退勤') {
+      overnight = overnightCheckout_(now);
+      if (overnight) { t = overnight.time + ':00'; d = overnight.date; }
+    }
 
     // 位置情報取得
     let lat = '', lng = '';
@@ -2286,6 +2411,20 @@
         // 呼び出し用の控えを保存（この退勤を起点に、翌朝5:00まで再出勤できる）
         saveCallbackShift(d, now.getTime(), breakMins, moveMins, dept, cont2, selectedType);
         updateReworkAvailability();
+        // 徹夜シフトの退勤を処理したら、持ち越しを解除して今日の初期状態に戻す
+        if (overnight) {
+          overnightWorkDate = null;
+          hideOvernightBanner_();
+          try { localStorage.removeItem('punchState_' + currentUser.id); } catch(err) {}
+          document.getElementById('status-checkin').textContent  = '──';
+          document.getElementById('status-checkout').textContent = '──';
+          document.getElementById('status-checkin').className  = 'status-value';
+          document.getElementById('status-checkout').className = 'status-value';
+          document.getElementById('btn-checkin').disabled  = false;
+          document.getElementById('btn-checkout').disabled = true;
+          document.getElementById('break-time').textContent = '──';
+          document.getElementById('move-time').textContent  = '──';
+        }
       }
     } catch(e) {
       showToast('⚠️ 通信エラー。後で再送してください。');
@@ -2807,10 +2946,10 @@
   function openCorrectModal() {
     if (checkPresident()) return;
     const dateVal  = document.getElementById('correct-date').value;
-    const timeVal  = document.getElementById('correct-time').value;
+    const timeVal  = correctTimeValue_();
     const reason   = document.getElementById('correct-reason').value.trim();
     if (!dateVal)  { showToast('対象日付を選択してください'); return; }
-    if (!timeVal)  { showToast('修正時間を入力してください'); return; }
+    if (!timeVal)  { showToast('修正時間を選択してください'); return; }
     if (!reason)   { showToast('修正理由を入力してください'); return; }
     document.getElementById('cm-name').textContent   = currentUser.name;
     document.getElementById('cm-date').textContent   = dateVal.replace(/-/g,'/');
@@ -2822,12 +2961,12 @@
 
   async function doCorrect() {
     const dateVal  = document.getElementById('correct-date').value;
-    const timeVal  = document.getElementById('correct-time').value;
+    const timeVal  = correctTimeValue_();
     const reason   = document.getElementById('correct-reason').value.trim();
     // 修正時間が空のまま送るとGAS側で NaN:NaN:00 が書き込まれるため、ここでも必ず弾く
     if (!timeVal) {
       closeModal('correct-modal');
-      showToast('修正時間を入力してください');
+      showToast('修正時間を選択してください');
       return;
     }
     closeModal('correct-modal');
@@ -2854,7 +2993,8 @@
       showToast('⚠️ 通信エラー。後で再送してください。');
     }
     document.getElementById('correct-date').value   = '';
-    document.getElementById('correct-time').value   = '';
+    document.getElementById('correct-hour').value   = '';
+    document.getElementById('correct-min').value    = '';
     document.getElementById('correct-reason').value = '';
     document.querySelectorAll('[data-correct]').forEach(b => b.classList.remove('selected'));
     document.querySelector('[data-correct="出勤"]').classList.add('selected');
