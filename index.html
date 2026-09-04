@@ -631,8 +631,8 @@
   <!-- 前日から続く未退勤（徹夜シフト）の案内 -->
   <div id="overnight-banner" style="display:none;background:rgba(224,168,75,0.14);border:1px solid rgba(224,168,75,0.5);border-radius:10px;padding:10px 12px;font-size:12.5px;color:var(--text);line-height:1.6;">
     <b id="overnight-msg"></b><br>
-    退勤ボタンを押すと<b>前日の勤務の退勤</b>として記録されます（深夜0時以降は24時以降の時刻で記録）。<br>
-    <a href="javascript:void(0)" onclick="discardOvernight_()" style="color:var(--accent2);font-weight:600;">→ 新しい勤務を始める（この案内を消す）</a>
+    前日ぶんを退勤するなら<b>退勤</b>を、今日の新しい勤務を始めるなら<b>出勤</b>を押してください（前日の退勤は24時以降の時刻で前日の行に記録されます）。<br>
+    <a href="javascript:void(0)" onclick="discardOvernight_()" style="color:var(--accent2);font-weight:600;">→ この案内を消す（前日ぶんは処理済み）</a>
   </div>
 
   <div>
@@ -1704,14 +1704,32 @@
 
   // 徹夜シフトの退勤用 {date, time}（24時以降表現）。持ち越し中のみ返す。
   function overnightCheckout_(now) {
-    if (!overnightWorkDate) return null;
-    const wdD = new Date(overnightWorkDate);
+    let wdStr = overnightWorkDate;
+    let fromFallback = false;
+    // 持ち越しフラグが無くても、保存状態の出勤日が前日以前なら徹夜とみなす
+    // （アプリを開いたまま日付をまたいで退勤した場合の保険）
+    if (!wdStr) {
+      try {
+        const s = JSON.parse(localStorage.getItem('punchState_' + currentUser.id));
+        if (s && s.date && s.checkinDone && !s.checkoutDone) {
+          const p = String(s.date).split('-');   // 'YYYY-MM-DD'
+          if (p.length === 3) {
+            wdStr = Number(p[0]) + '/' + String(Number(p[1])).padStart(2, '0') + '/' + String(Number(p[2])).padStart(2, '0');
+            fromFallback = true;
+          }
+        }
+      } catch(e) {}
+    }
+    if (!wdStr) return null;
+    const wdD = new Date(wdStr);
     const td  = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const daysDiff = Math.round((td - wdD) / 86400000);
     if (daysDiff < 1) return null;
+    // フォールバック検出（開きっぱなし）は前日ぶん・15時前のみ。持ち越しフラグ経由はそのまま許可。
+    if (fromFallback && (daysDiff !== 1 || now.getHours() >= 15)) return null;
     const pad = n => String(n).padStart(2, '0');
     const oh  = now.getHours() + 24 * daysDiff;
-    return { date: overnightWorkDate, time: pad(oh) + ':' + pad(now.getMinutes()) };
+    return { date: wdStr, time: pad(oh) + ':' + pad(now.getMinutes()) };
   }
 
   // ======== 打刻状態の保存・復元（0時にリセット） ========
@@ -1756,7 +1774,8 @@
           const sel = document.getElementById('type-select');
           if (sel) sel.value = state.punchType;
         }
-        document.getElementById('btn-checkin').disabled  = true;
+        // 出勤も押せるようにする（新しい勤務を始める場合／持ち越しは出勤時に自動解除）
+        document.getElementById('btn-checkin').disabled  = false;
         document.getElementById('btn-checkout').disabled = false;
         showOvernightBanner_();
         return;
@@ -2302,6 +2321,17 @@
   async function doPunch() {
     const now   = new Date();
     const label = pendingAction === 'checkin' ? '出勤' : '退勤';
+    // 徹夜の持ち越し中に「出勤」した場合は、前日ぶんの持ち越しを解除して今日の勤務を始める
+    if (pendingAction === 'checkin' && overnightWorkDate) {
+      overnightWorkDate = null;
+      hideOvernightBanner_();
+      try { localStorage.removeItem('punchState_' + currentUser.id); } catch(e) {}
+      document.getElementById('status-checkout').textContent = '──';
+      document.getElementById('status-checkout').className    = 'status-value';
+      document.getElementById('break-time').textContent = '──';
+      document.getElementById('move-time').textContent  = '──';
+      document.getElementById('history-list').innerHTML = '';
+    }
     const color = pendingAction === 'checkin' ? '#3dba7a' : '#e05a5a';
     const sid   = pendingAction === 'checkin' ? 'status-checkin' : 'status-checkout';
     const bid   = pendingAction === 'checkin' ? 'btn-checkin'    : 'btn-checkout';
