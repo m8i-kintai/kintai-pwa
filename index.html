@@ -1732,6 +1732,36 @@
     return { date: wdStr, time: pad(oh) + ':' + pad(now.getMinutes()) };
   }
 
+  // 打刻画面を「今日の初期状態」に戻す（出勤=有効／退勤=無効／表示クリア）
+  function resetPunchUIForToday_() {
+    document.getElementById('status-checkin').textContent  = '──';
+    document.getElementById('status-checkout').textContent = '──';
+    document.getElementById('status-checkin').className  = 'status-value';
+    document.getElementById('status-checkout').className = 'status-value';
+    document.getElementById('btn-checkin').disabled  = false;
+    document.getElementById('btn-checkout').disabled = true;
+    document.getElementById('break-time').textContent = '──';
+    document.getElementById('move-time').textContent  = '──';
+    document.getElementById('history-list').innerHTML = '';
+  }
+
+  // アプリを前面に戻した時、メモリ保持のまま日付をまたいでいたら状態を更新する
+  document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState !== 'visible' || !currentUser) return;
+    var savedDate = null;
+    try {
+      const s = JSON.parse(localStorage.getItem('punchState_' + currentUser.id));
+      if (s) savedDate = s.date;
+    } catch(e) {}
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+    // 保存された打刻日が今日でない＝日付をまたいだ → 持ち越し or 初期化を再判定
+    if (savedDate && savedDate !== today) {
+      loadPunchState();
+      updateReworkAvailability();   // 再出勤（呼び出し）トグルの表示も更新
+    }
+  });
+
   // ======== 打刻状態の保存・復元（0時にリセット） ========
   function savePunchState() {
     const now = new Date();
@@ -1780,7 +1810,12 @@
         showOvernightBanner_();
         return;
       }
+      // 前日以前で持ち越し対象外（完了済み等）→ 今日の初期状態へ戻す
+      // （アプリをメモリに保持したまま日付をまたいだ場合の保険）
+      overnightWorkDate = null;
+      hideOvernightBanner_();
       localStorage.removeItem('punchState_' + currentUser.id);
+      resetPunchUIForToday_();
       return;
     }
 
