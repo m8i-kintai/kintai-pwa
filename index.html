@@ -2164,6 +2164,18 @@
   }
 
   // 自分の申請状況（全員に表示）
+  // 日付文字列(yyyy/mm/dd)に曜日を付与： 2026/09/05 → 2026/09/05(土)
+  // 範囲・複数選択・毎週など、文字列中の全ての日付トークンに付ける
+  function withWeekday_(text) {
+    if (!text) return text;
+    const wd = ['日', '月', '火', '水', '木', '金', '土'];
+    return String(text).replace(/(\d{4})\/(\d{1,2})\/(\d{1,2})(?!\s*\()/g, (m, y, mo, d) => {
+      const dt = new Date(Number(y), Number(mo) - 1, Number(d));
+      if (isNaN(dt.getTime())) return m;
+      return m + '(' + wd[dt.getDay()] + ')';
+    });
+  }
+
   function renderMyItems_() {
     const sec  = document.getElementById('approval-my-section');
     const list = document.getElementById('approval-my-list');
@@ -2187,7 +2199,7 @@
         + '<span style="font-size:13px;font-weight:600;color:var(--text);">' + escapeHtml_(it.type) + '</span>'
         + chip(it.status)
         + '</div>'
-        + '<div style="font-size:13px;color:var(--text);margin-top:5px;">' + escapeHtml_(it.dateText) + '</div>'
+        + '<div style="font-size:13px;color:var(--text);margin-top:5px;">' + escapeHtml_(withWeekday_(it.dateText)) + '</div>'
         + noteHtml;
       list.appendChild(el);
     });
@@ -2215,7 +2227,7 @@
         + '<span style="font-size:11px;font-weight:700;color:var(--accent2);background:rgba(91,110,245,0.13);border-radius:6px;padding:2px 8px;">' + escapeHtml_(it.type) + '</span>'
         + '<span style="font-size:12px;color:var(--muted);">' + escapeHtml_(it.empName) + '（' + escapeHtml_(it.empId) + '）</span>'
         + '</div>'
-        + '<div style="font-size:14px;font-weight:600;color:var(--text);margin-top:7px;">' + escapeHtml_(it.dateText) + '</div>'
+        + '<div style="font-size:14px;font-weight:600;color:var(--text);margin-top:7px;">' + escapeHtml_(withWeekday_(it.dateText)) + '</div>'
         + noteHtml
         + '<div style="display:flex;gap:8px;margin-top:11px;">'
         + '<button class="approve-btn" data-idx="' + idx + '" data-dec="approve" style="flex:1;padding:9px;border:none;border-radius:8px;background:#3dba7a;color:#fff;font-weight:700;font-size:13px;cursor:pointer;">✅ 承認</button>'
@@ -2232,7 +2244,7 @@
     const it = approvalItems[idx];
     if (!it) return;
     const label = decision === 'approve' ? '承認' : '却下';
-    if (!confirm(it.empName + ' さんの「' + it.type + '（' + it.dateText + '）」を' + label + 'しますか？')) return;
+    if (!confirm(it.empName + ' さんの「' + it.type + '（' + withWeekday_(it.dateText) + '）」を' + label + 'しますか？')) return;
 
     // 同カードのボタンを無効化
     const card = btn.closest('div').parentNode;
