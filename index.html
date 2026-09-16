@@ -1462,6 +1462,16 @@
     <div class="set-label" style="margin-top:16px;">通知（プッシュ）</div>
     <div id="notify-status" style="color:var(--muted);font-size:12px;line-height:1.6;margin-bottom:8px;">残業・休日出勤の申請もれや、承認依頼をお知らせします。</div>
     <button id="notify-btn" class="settings-btn" style="width:100%;padding:10px;font-size:13px;" onclick="enableNotifications()">🔔 通知をオンにする</button>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:16px;padding:12px;border:1px solid var(--border);border-radius:12px;background:var(--surface2);">
+      <div>
+        <div style="font-size:13px;font-weight:700;">打刻漏れ事前防止通知</div>
+        <div style="margin-top:3px;color:var(--muted);font-size:11px;line-height:1.5;">平日 8:50：出勤打刻 ／ 18:00：退勤打刻を確認します</div>
+      </div>
+      <label class="toggle-switch" title="打刻漏れ事前防止通知">
+        <input type="checkbox" id="punch-guard-toggle" onchange="onPunchGuardToggle(this)">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
     <div class="modal-btns" style="margin-top:22px;grid-template-columns:1fr;">
       <button class="modal-confirm" style="background:var(--accent)" onclick="closeModal('settings-modal')">閉じる</button>
     </div>
@@ -1558,6 +1568,39 @@
     } else {
       btn.textContent = '🔔 通知をオンにする';
       st.textContent  = '残業・休日出勤の申請もれや、承認依頼をお知らせします。';
+    }
+  }
+
+  // 打刻漏れ事前防止通知の設定を取得する（社員ごとの設定・端末をまたいで共通）
+  async function loadPunchGuardSetting_() {
+    const toggle = document.getElementById('punch-guard-toggle');
+    if (!toggle || !currentUser) return;
+    try {
+      const res = await postJson_({ requestType: 'punchGuardSetting', empId: currentUser.id, action: 'get' });
+      if (res && res.status === 'ok') toggle.checked = !!res.enabled;
+    } catch (e) {
+      // 設定の読込失敗は設定画面だけに留め、アプリ本体の操作は止めない
+    }
+  }
+
+  // 打刻漏れ事前防止通知のON/OFF
+  async function onPunchGuardToggle(toggle) {
+    if (!currentUser) { toggle.checked = false; showToast('先にログインしてください'); return; }
+    if (toggle.checked && (!('Notification' in window) || Notification.permission !== 'granted')) {
+      toggle.checked = false;
+      showToast('先に「通知をオンにする」を設定してください');
+      return;
+    }
+    toggle.disabled = true;
+    try {
+      const res = await postJson_({ requestType: 'punchGuardSetting', empId: currentUser.id, action: 'set', enabled: toggle.checked });
+      if (!res || res.status !== 'ok') throw new Error((res && res.message) || '保存できませんでした');
+      showToast(toggle.checked ? '打刻漏れ事前防止通知をオンにしました' : '打刻漏れ事前防止通知をオフにしました');
+    } catch (e) {
+      toggle.checked = !toggle.checked;
+      showToast('設定の保存に失敗しました');
+    } finally {
+      toggle.disabled = false;
     }
   }
 
@@ -3687,6 +3730,7 @@
     const theme = lsGet_('uiTheme') || 'dark';
     syncSettingsUI(zoom, theme);
     updateNotifyUI_();
+    loadPunchGuardSetting_();
     document.getElementById('settings-modal').classList.add('show');
   }
 
