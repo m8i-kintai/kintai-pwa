@@ -1386,10 +1386,18 @@
   <div class="modal">
     <div class="modal-handle"></div>
     <div class="modal-title">勤務表確認</div>
-    <div class="modal-sub">当月の勤務表PDFをメールで送信します</div>
+    <div class="modal-sub">選択した年月の勤務表PDFをメールで送信します</div>
+    <div style="margin:18px 0 16px;">
+      <div class="field-label">対象年月</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <select id="timesheet-pdf-year" class="field-input" aria-label="対象年"></select>
+        <select id="timesheet-pdf-month" class="field-input" aria-label="対象月"></select>
+      </div>
+      <div style="margin-top:7px;color:var(--muted);font-size:11px;line-height:1.5;">2026年9月以降の勤務表を選択できます</div>
+    </div>
     <div style="font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:24px;text-align:center;">
       登録されているメールアドレス宛に<br>
-      当月の勤務表PDFを送信します。<br>
+      選択した月の勤務表PDFを送信します。<br>
       よろしいですか？
     </div>
     <div class="modal-btns">
@@ -3188,13 +3196,42 @@
   }
 
   // ======== 勤務表PDF送信 ========
+  function populateTimesheetPdfMonths_() {
+    const yearSel = document.getElementById('timesheet-pdf-year');
+    const monthSel = document.getElementById('timesheet-pdf-month');
+    if (!yearSel || !monthSel) return;
+    const now = new Date();
+    const currentYm = now.getFullYear() * 100 + now.getMonth() + 1;
+    const choices = [];
+    for (let y = 2026, m = 9; y * 100 + m <= currentYm; ) {
+      choices.push({ y, m });
+      m++;
+      if (m === 13) { y++; m = 1; }
+    }
+    const years = [...new Set(choices.map(v => v.y))];
+    yearSel.innerHTML = years.map(y => '<option value="' + y + '">' + y + '年</option>').join('');
+    const renderMonths = function() {
+      const selectedYear = Number(yearSel.value);
+      monthSel.innerHTML = choices.filter(v => v.y === selectedYear)
+        .map(v => '<option value="' + v.m + '">' + v.m + '月</option>').join('');
+    };
+    yearSel.onchange = renderMonths;
+    yearSel.value = String(now.getFullYear());
+    renderMonths();
+    monthSel.value = String(now.getMonth() + 1);
+  }
+
   function openTimesheetPdfModal() {
     if (!currentUser) { showToast('ログインが必要です'); return; }
     if (checkPresident()) return;
+    populateTimesheetPdfMonths_();
     document.getElementById('timesheet-pdf-modal').classList.add('show');
   }
 
   async function doTimesheetPdf() {
+    const year = Number(document.getElementById('timesheet-pdf-year').value);
+    const month = Number(document.getElementById('timesheet-pdf-month').value);
+    if (!year || !month) { showToast('対象年月を選択してください'); return; }
     closeModal('timesheet-pdf-modal');
     showToast('⏳ 勤務表を生成中…少々お待ちください');
     try {
@@ -3204,11 +3241,13 @@
           requestType: 'timesheetPdf',
           empId:       currentUser.id,
           empName:     currentUser.name,
+          year:        year,
+          month:       month,
         })
       });
       const data = await res.json();
       if (data.status === 'ok') {
-        showToast('📧 まもなく勤務表PDFがメールに届きます');
+        showToast('📧 ' + year + '年' + month + '月分の勤務表PDFをメールに送信しました');
       } else {
         showToast('⚠️ エラー：' + (data.message || '不明なエラー'));
       }
