@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>タイプD一括上書き CSV変換ツール</title>
+  <style>
+    :root{--navy:#183b5b;--blue:#1676c5;--line:#d7e0e8;--soft:#f4f7fa;--danger:#b42318;--ok:#087443}
+    *{box-sizing:border-box} body{margin:0;background:#f1f5f8;color:#1e2935;font-family:"Yu Gothic UI","Meiryo",sans-serif}
+    main{max-width:1180px;margin:36px auto;padding:0 22px 44px} h1{margin:0;color:var(--navy);font-size:25px}.lead{margin:9px 0 24px;color:#52616f;line-height:1.65}
+    .card{background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 2px 8px #142b3c0d;padding:22px;margin-top:16px}h2{margin:0 0 14px;font-size:17px;color:var(--navy)}
+    .uploads{display:grid;grid-template-columns:1fr 1fr;gap:16px}.upload{min-height:154px;border:2px dashed #a8c2d8;border-radius:10px;padding:19px;background:#fbfdff}.upload.drag{border-color:var(--blue);background:#edf7ff}.upload strong{display:block;font-size:16px;color:var(--navy);margin-bottom:7px}.upload p{color:#647384;margin:0 0 15px;font-size:13px;line-height:1.55}input[type=file]{width:100%;font:inherit;color:#445464}.file-name{display:block;min-height:19px;margin-top:8px;font-size:13px;color:var(--ok);overflow-wrap:anywhere}
+    button{border:0;border-radius:7px;padding:11px 16px;font:inherit;font-weight:700;cursor:pointer}button:disabled{cursor:not-allowed;opacity:.45}.primary{background:var(--blue);color:#fff}.secondary{background:#e6eef5;color:#25445f}.actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:18px}#status{margin:0;font-size:14px;color:#52616f}#status.error{color:var(--danger)}#status.ok{color:var(--ok)}
+    .summary{display:none;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:16px}.summary.show{display:grid}.metric{border:1px solid var(--line);border-radius:8px;padding:12px;background:var(--soft)}.metric b{display:block;font-size:22px;color:var(--navy)}.metric span{font-size:12px;color:#617181}.notice{display:none;margin:0 0 14px;padding:10px 12px;border-radius:7px;background:#fff5e7;color:#8a4a00;font-size:13px;line-height:1.5}.notice.show{display:block}
+    .table-wrap{overflow:auto;max-height:460px;border:1px solid var(--line);border-radius:8px}table{width:100%;border-collapse:collapse;white-space:nowrap;font-size:13px}th,td{border-bottom:1px solid #e5ebf0;padding:9px 11px;text-align:left}th{position:sticky;top:0;background:var(--navy);color:#fff}tbody tr:nth-child(even){background:#f8fafc}.hint{color:#607080;font-size:13px;line-height:1.6;margin:14px 0 0}code{color:#8a4a00;background:#fff5e7;padding:1px 4px;border-radius:3px}
+    @media(max-width:700px){main{margin:20px auto;padding:0 14px 30px}.uploads,.summary{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>タイプD一括上書き CSV変換ツール</h1>
+    <p class="lead">キーCSVの社員番号・氏名で勤怠CSVを絞り込み、社員マスターの「タイプD一括上書き」シートに貼り付けられる9列に変換します。CSVは端末内だけで処理され、アップロードされません。</p>
+    <section class="card">
+      <h2>1. CSVを選択</h2>
+      <div class="uploads">
+        <label class="upload" id="key-drop"><strong>① キーCSV</strong><p>「社員番号, 氏名」の2列。ヘッダーの有無はどちらでも使えます。</p><input id="key-file" type="file" accept=".csv,text/csv"><span class="file-name" id="key-name">未選択</span></label>
+        <label class="upload" id="source-drop"><strong>② 勤怠CSV</strong><p>e-staffing通常CSV、「勤怠データダウンロード」、またはETF勤怠一括CSV。</p><input id="source-file" type="file" accept=".csv,text/csv"><span class="file-name" id="source-name">未選択</span></label>
+      </div>
+      <div class="actions"><button class="primary" id="build" disabled>変換してプレビュー</button><p id="status" aria-live="polite">2つのCSVを選択してください。</p></div>
+    </section>
+    <section class="card" id="result-card" hidden>
+      <h2>2. 変換結果</h2>
+      <div class="summary" id="summary"><div class="metric"><b id="output-count">0</b><span>貼り付け対象行</span></div><div class="metric"><b id="matched-count">0</b><span>照合できた社員数</span></div><div class="metric"><b id="excluded-count">0</b><span>空欄時刻のため除外した日</span></div><div class="metric"><b id="missing-count">0</b><span>勤怠CSVにいないキー社員数</span></div></div>
+      <p class="notice" id="missing-notice"></p>
+      <div class="actions" style="margin-top:0;margin-bottom:14px"><button class="primary" id="copy-data">データをコピー（ヘッダーなし）</button><button class="secondary" id="copy-with-header">ヘッダー付きでコピー</button><span id="copy-status" aria-live="polite"></span></div>
+      <div class="table-wrap"><table><thead id="table-head"></thead><tbody id="table-body"></tbody></table></div>
+      <p class="hint">通常は「データをコピー」を押し、社員マスターの<code>タイプD一括上書き</code>シートのA2セルに貼り付けてください。ヘッダー行も作り直す場合だけ「ヘッダー付きでコピー」を使います。</p>
+    </section>
+  </main>
+<script>
+const OUTPUT_HEADERS=['社員番号','氏名','契約書上の勤務開始時刻','契約書上の勤務終了時刻','就業年月日','開始時刻','終了時刻','休憩時間','深夜休憩時間'];
+const ESTAFF_HEADERS=['スタッフ氏名','契約書上の勤務開始時刻','契約書上の勤務終了時刻','就業年月日','開始時刻','終了時刻','休憩時間','深夜休憩時間'];
+const CONTRACT_HEADERS=['スタッフ名','勤務開始時刻','勤務終了時刻'];
+const DETAIL_HEADERS=['就業年月日','勤務開始時刻','勤務終了時刻','休憩時間','深夜休憩時間'];
+const ETF_HEADERS=['スタッフ氏名','勤務開始時刻','勤務終了時刻','就業年月日','勤務開始時刻実績','勤務終了時刻実績','休憩時間（実績）','深夜休憩時間'];
+let keyFile=null,sourceFile=null,outputRows=[];
+const $=id=>document.getElementById(id); const clean=v=>String(v??'').replace(/^\uFEFF/,'').trim(); const norm=v=>clean(v).normalize('NFKC').replace(/[\s　]+/g,'');
+function csv(text){const rows=[];let row=[],cell='',q=false;for(let i=0;i<text.length;i++){const c=text[i];if(q){if(c==='"'&&text[i+1]==='"'){cell+='"';i++}else if(c==='"')q=false;else cell+=c}else if(c==='"')q=true;else if(c===','){row.push(clean(cell));cell=''}else if(c==='\n'||c==='\r'){if(c==='\r'&&text[i+1]==='\n')i++;row.push(clean(cell));cell='';if(row.some(v=>v!==''))rows.push(row);row=[]}else cell+=c}row.push(clean(cell));if(row.some(v=>v!==''))rows.push(row);return rows}
+async function read(file){const b=new Uint8Array(await file.arrayBuffer());const utf8=new TextDecoder('utf-8').decode(b);return csv(!utf8.includes('\uFFFD')&&/[ぁ-んァ-ヶ一-龠]/.test(utf8)?utf8:new TextDecoder('shift_jis').decode(b))}
+function status(msg,kind=''){const e=$('status');e.textContent=msg;e.className=kind}
+function mapHeaders(headers,needs,label){const m=new Map(headers.map((v,i)=>[clean(v),i]));const miss=needs.filter(h=>!m.has(h));if(miss.length)throw Error(label+'に必要な列がありません: '+miss.join('、'));return m}
+function parseEStaffing(rows,keys){const m=mapHeaders(rows[0],ESTAFF_HEADERS,'勤怠CSV'),matched=new Set(),out=[];for(const r of rows.slice(1)){const name=clean(r[m.get('スタッフ氏名')]),key=keys.get(norm(name));if(!key)continue;matched.add(norm(name));out.push([key.id,key.name,...ESTAFF_HEADERS.slice(1).map(h=>clean(r[m.get(h)]))])}return{rows:out,matched,excluded:0,format:'e-staffing通常CSV'}}
+function parseKinjiro(rows,keys){let cm,dm,contract,excluded=0;const matched=new Set(),out=[];for(const r of rows){const kind=clean(r[0]);if(kind==='契約識別文字列'){cm=mapHeaders(r,CONTRACT_HEADERS,'契約行');continue}if(kind==='明細識別文字列'){dm=mapHeaders(r,DETAIL_HEADERS,'日別明細行');continue}if(kind==='H'){if(!cm)throw Error('契約行のヘッダーを読み取れませんでした。');contract={name:clean(r[cm.get('スタッフ名')]),start:clean(r[cm.get('勤務開始時刻')]),end:clean(r[cm.get('勤務終了時刻')])};continue}if(kind!=='D')continue;if(!contract||!dm)throw Error('日別明細に対応する契約情報を読み取れませんでした。');const key=keys.get(norm(contract.name));if(!key)continue;const start=clean(r[dm.get('勤務開始時刻')]),end=clean(r[dm.get('勤務終了時刻')]);if(!start||!end){excluded++;continue}matched.add(norm(contract.name));out.push([key.id,key.name,contract.start,contract.end,clean(r[dm.get('就業年月日')]),start,end,clean(r[dm.get('休憩時間')]),clean(r[dm.get('深夜休憩時間')])])}return{rows:out,matched,excluded,format:'勤怠データダウンロードCSV'}}
+function parseEtf(rows,keys){const m=mapHeaders(rows[0],ETF_HEADERS,'ETF勤怠一括CSV'),matched=new Set(),out=[];let excluded=0;for(const r of rows.slice(1)){const name=clean(r[m.get('スタッフ氏名')]),key=keys.get(norm(name));if(!key)continue;const start=clean(r[m.get('勤務開始時刻実績')]),end=clean(r[m.get('勤務終了時刻実績')]);if(!start||!end){excluded++;continue}matched.add(norm(name));out.push([key.id,key.name,clean(r[m.get('勤務開始時刻')]),clean(r[m.get('勤務終了時刻')]),clean(r[m.get('就業年月日')]),start,end,clean(r[m.get('休憩時間（実績）')]),clean(r[m.get('深夜休憩時間')])])}return{rows:out,matched,excluded,format:'ETF勤怠一括CSV'}}
+function esc(v){return String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function render(keys,parsed){const missing=[...keys.values()].filter(v=>!parsed.matched.has(norm(v.name)));$('output-count').textContent=outputRows.length;$('matched-count').textContent=parsed.matched.size;$('excluded-count').textContent=parsed.excluded;$('missing-count').textContent=missing.length;const n=$('missing-notice');n.textContent=missing.length?'勤怠CSVに見つからなかったキー社員: '+missing.map(v=>v.id+' '+v.name).join('、'):'';n.classList.toggle('show',!!missing.length);$('summary').classList.add('show');$('table-head').innerHTML='<tr>'+OUTPUT_HEADERS.map(v=>'<th>'+esc(v)+'</th>').join('')+'</tr>';$('table-body').innerHTML=outputRows.map(r=>'<tr>'+r.map(v=>'<td>'+esc(v)+'</td>').join('')+'</tr>').join('');$('result-card').hidden=false}
+async function build(){try{status('CSVを読み込んで照合しています…');const [kRows,sRows]=await Promise.all([read(keyFile),read(sourceFile)]);if(!kRows.length||!sRows.length)throw Error('空のCSVは読み込めません。');const start=/^(社員番号|社員No|ID)$/i.test(clean(kRows[0][0]))?1:0,keys=new Map();for(const r of kRows.slice(start)){const id=clean(r[0]),name=clean(r[1]);if(id&&name)keys.set(norm(name),{id,name})}if(!keys.size)throw Error('キーCSVから「社員番号, 氏名」を読み取れませんでした。');const h=sRows[0].map(clean);const parsed=h[0]==='契約識別文字列'?parseKinjiro(sRows,keys):h.includes('勤務開始時刻実績')?parseEtf(sRows,keys):parseEStaffing(sRows,keys);outputRows=parsed.rows;if(!outputRows.length)throw Error('照合できる勤怠行がありません。氏名がキーCSVと一致するか確認してください。');render(keys,parsed);status(parsed.format+'から'+outputRows.length+'行を変換しました。','ok')}catch(e){outputRows=[];status(e.message||'読み込み中にエラーが起きました。','error');$('result-card').hidden=true}}
+function tsv(header){return(header?[OUTPUT_HEADERS,...outputRows]:outputRows).map(r=>r.map(v=>String(v).replace(/[\t\r\n]/g,' ')).join('\t')).join('\n')}
+async function copy(header){try{await navigator.clipboard.writeText(tsv(header))}catch(_){const a=document.createElement('textarea');a.value=tsv(header);document.body.append(a);a.select();document.execCommand('copy');a.remove()}$('copy-status').textContent=outputRows.length+'行をコピーしました。';setTimeout(()=>$('copy-status').textContent='',3500)}
+function bind(kind){const input=$(kind+'-file'),drop=$(kind+'-drop');const choose=f=>{if(kind==='key'){keyFile=f;$('key-name').textContent=f?'選択中: '+f.name:'未選択'}else{sourceFile=f;$('source-name').textContent=f?'選択中: '+f.name:'未選択'}$('build').disabled=!(keyFile&&sourceFile);if(f)status('2つのCSVがそろったら「変換してプレビュー」を押してください。')};input.addEventListener('change',()=>choose(input.files[0]||null));['dragenter','dragover'].forEach(e=>drop.addEventListener(e,x=>{x.preventDefault();drop.classList.add('drag')}));['dragleave','drop'].forEach(e=>drop.addEventListener(e,x=>{x.preventDefault();drop.classList.remove('drag')}));drop.addEventListener('drop',e=>{const f=e.dataTransfer.files[0];if(f)choose(f)})}
+bind('key');bind('source');$('build').addEventListener('click',build);$('copy-data').addEventListener('click',()=>copy(false));$('copy-with-header').addEventListener('click',()=>copy(true));
+</script>
+</body>
+</html>
