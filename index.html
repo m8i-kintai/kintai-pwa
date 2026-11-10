@@ -2651,17 +2651,53 @@
     }, timeoutMs);
   }
 
+  function punchTodayInJapan_() {
+    const date = new Date(Date.now() + 9 * 60 * 60 * 1000);
+    return date.getUTCFullYear() + '/' + String(date.getUTCMonth() + 1).padStart(2, '0') + '/' + String(date.getUTCDate()).padStart(2, '0');
+  }
+
+  function punchTimeKey_(value) {
+    if (typeof value !== 'string') return '';
+    const match = value.trim().match(/^(\d{1,3}):([0-5]\d)(?::[0-5]\d)?$/);
+    return match ? Number(match[1]) + ':' + match[2] : '';
+  }
+
+  async function checkTodayPunchReceipt_(punch, timeoutMs) {
+    // 同じ社員・勤務日・区分・時刻の回答が実在すれば受付済み。
+    // 旧APIは当日限定のため、過去日の勤務や通信中の日付またぎには使わない。
+    if (!currentUser || String(currentUser.id) !== punch.empId || !currentAuthToken || punch.date !== punchTodayInJapan_()) return null;
+    const data = await punchJsonRequest_(FORM_GAS_URL + '?empId=' + encodeURIComponent(punch.empId) +
+      '&_receipt=' + encodeURIComponent(punch.date + '_' + Date.now()), null, timeoutMs);
+    if (!currentUser || String(currentUser.id) !== punch.empId || punch.date !== punchTodayInJapan_()) return null;
+    if (data.date && data.date !== punch.date) return null;
+    if (data.empId && String(data.empId) !== punch.empId) return null;
+    const value = punch.action === 'checkin' ? data.checkin : punch.action === 'checkout' ? data.checkout : null;
+    const expected = punchTimeKey_(punch.time);
+    return expected && punchTimeKey_(value) === expected
+      ? { status: 'ok', found: true, receiptSource: 'form-status' } : null;
+  }
+
   async function waitForPunchReceipt_(punch) {
     const deadline = Date.now() + PUNCH_CONFIRM_TIMEOUT_MS;
+    let answered = false, lastError = null;
     while (Date.now() < deadline) {
       try {
-        const data = await checkPunchReceipt_(punch, Math.min(PUNCH_REQUEST_TIMEOUT_MS, Math.max(1, deadline - Date.now())));
+        // 確認全体の時間だけを上限にする。遅いGAS応答を10秒ごとに中断・再実行しない。
+        const data = await checkPunchReceipt_(punch, Math.max(1, deadline - Date.now()));
+        if (typeof data.found !== 'boolean') throw new Error('確認先から正しい応答を取得できませんでした。');
+        answered = true;
         if (data.found === true && Number.isSafeInteger(data.receiptRow) && data.receiptRow > punch.afterRow) return data;
+        if (data.found === false && Date.now() < deadline) {
+          const existing = await checkTodayPunchReceipt_(punch, Math.max(1, deadline - Date.now()));
+          if (existing) return existing;
+        }
       } catch (error) {
         if (['invalid', 'input', 'baseline_changed', 'receipt_range', 'unavailable'].includes(error.code)) throw error;
+        lastError = error;
       }
       if (Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, Math.min(1200, deadline - Date.now())));
     }
+    if (!answered && lastError) throw new Error('受付確認の通信が完了していません。打刻を再送せず、受付をもう一度確認してください。');
     throw new Error('まだ受付を確認できていません。もう一度確認してください。');
   }
 
