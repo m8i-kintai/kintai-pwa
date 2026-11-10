@@ -414,6 +414,8 @@
   .modal-row-label { color: var(--muted); white-space: nowrap; }
   .modal-row-value { font-weight: 500; font-family: 'DM Mono', monospace; text-align: right; }
   .modal-row-value.jp { font-family: 'Noto Sans JP', sans-serif; }
+  #correct-modal .modal { max-height: 90vh; overflow-y: auto; }
+  #correct-modal .modal-row-value { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
   .modal-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .modal-cancel {
     background: var(--surface); border: 1.5px solid var(--border2);
@@ -1201,7 +1203,7 @@
     </div>
     <div class="apply-body" id="correct-body">
       <div style="font-size:12px;color:var(--muted);line-height:1.6;">
-        過去の打刻ミスを修正します。<br>申請後、上長が承認すると勤務表に反映されます。
+        打刻時刻・種別・稼働情報を修正します。<br>変更する項目を1つ選んで申請してください。上長が承認すると勤務表に反映されます。
       </div>
       <div>
         <div class="field-label" style="margin-bottom:6px">対象日付</div>
@@ -1209,12 +1211,16 @@
       </div>
       <div>
         <div class="field-label" style="margin-bottom:8px">修正対象</div>
-        <div style="display:flex;gap:8px">
+        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">
           <button class="apply-btn selected" data-correct="出勤" onclick="selectCorrectType(this)" style="flex:1">出勤</button>
           <button class="apply-btn"          data-correct="退勤" onclick="selectCorrectType(this)" style="flex:1">退勤</button>
+          <button class="apply-btn" data-correct="種別" onclick="selectCorrectType(this)">種別</button>
+          <button class="apply-btn" data-correct="稼働部門" onclick="selectCorrectType(this)">稼働部門</button>
+          <button class="apply-btn" data-correct="実施内容" onclick="selectCorrectType(this)">実施内容</button>
+          <button class="apply-btn" data-correct="備考" onclick="selectCorrectType(this)">備考（遠地・在宅）</button>
         </div>
       </div>
-      <div>
+      <div id="correct-time-field">
         <div class="field-label" style="margin-bottom:6px">修正時間（必須）</div>
         <div style="display:flex;align-items:center;gap:8px">
           <select class="field-input" id="correct-hour" style="font-size:16px;flex:1"></select>
@@ -1222,6 +1228,29 @@
           <select class="field-input" id="correct-min" style="font-size:16px;flex:1"></select>
         </div>
         <div class="work-note" style="margin-top:6px">退勤が深夜0時を過ぎた日は<b>24以降</b>を選びます（例：翌1:00→<b>25</b>、翌5:00→<b>29</b>）。</div>
+      </div>
+      <div class="work-field" id="correct-kind-field" style="display:none">
+        <label class="field-label" for="correct-kind">変更後の種別（必須）</label>
+        <select class="work-input" id="correct-kind"></select>
+      </div>
+      <div class="work-field" id="correct-dept-field" style="display:none">
+        <label class="field-label" for="correct-dept">変更後の稼働部門（必須）</label>
+        <select class="work-input" id="correct-dept"></select>
+      </div>
+      <div class="work-field" id="correct-content-field" style="display:none">
+        <label class="field-label" for="correct-content">変更後の実施内容（必須）</label>
+        <textarea class="work-input" id="correct-content" placeholder="変更後の実施内容を記入してください" style="min-height:80px"></textarea>
+      </div>
+      <div class="work-field" id="correct-note-field" style="display:none">
+        <label class="field-label" for="correct-note">変更後の備考（必須）</label>
+        <select class="work-input" id="correct-note">
+          <option value="">選択してください</option>
+          <option value="遠地">遠地のみ</option>
+          <option value="在宅">在宅のみ</option>
+          <option value="遠地 / 在宅">遠地・在宅の両方</option>
+          <option value="なし">遠地・在宅なし（解除）</option>
+        </select>
+        <div class="work-note">遠地・在宅の記載を選んだ状態に変更します。振休予定など、その他の備考は残ります。</div>
       </div>
       <div class="work-field">
         <div class="field-label">修正理由（必須）</div>
@@ -1300,7 +1329,7 @@
       <div class="modal-row"><span class="modal-row-label">氏名</span><span class="modal-row-value jp" id="cm-name"></span></div>
       <div class="modal-row"><span class="modal-row-label">対象日</span><span class="modal-row-value" id="cm-date"></span></div>
       <div class="modal-row"><span class="modal-row-label">修正対象</span><span class="modal-row-value jp" id="cm-type"></span></div>
-      <div class="modal-row"><span class="modal-row-label">修正時間</span><span class="modal-row-value" id="cm-time"></span></div>
+      <div class="modal-row"><span class="modal-row-label">変更後</span><span class="modal-row-value jp" id="cm-time" style="white-space:pre-wrap;overflow-wrap:anywhere"></span></div>
       <div class="modal-row"><span class="modal-row-label">修正理由</span><span class="modal-row-value jp" id="cm-reason"></span></div>
     </div>
     <div style="font-size:12px;color:var(--muted);margin-bottom:20px;line-height:1.6;">
@@ -3056,6 +3085,7 @@
 
   // ======== 打刻修正申請 ========
   function toggleCorrect() {
+    populateCorrectionOptions_();
     const body    = document.getElementById('correct-body');
     const chevron = document.getElementById('correct-chevron');
     const header  = document.getElementById('correct-header');
@@ -3069,34 +3099,49 @@
     document.querySelectorAll('[data-correct]').forEach(b => b.classList.remove('selected'));
     el.classList.add('selected');
     selectedCorrectType = el.dataset.correct;
+    populateCorrectionOptions_();
+    const fields = { '出勤': 'time', '退勤': 'time', '種別': 'kind', '稼働部門': 'dept', '実施内容': 'content', '備考': 'note' };
+    ['time', 'kind', 'dept', 'content', 'note'].forEach(field => {
+      document.getElementById('correct-' + field + '-field').style.display = fields[selectedCorrectType] === field ? '' : 'none';
+    });
+  }
+
+  function populateCorrectionOptions_() {
+    [['correct-kind', 'type-select'], ['correct-dept', 'work-dept']].forEach(([target, source]) => {
+      const select = document.getElementById(target);
+      if (!select.options.length) select.innerHTML = document.getElementById(source).innerHTML;
+    });
+  }
+
+  function correctionInput_() {
+    const isTime = selectedCorrectType === '出勤' || selectedCorrectType === '退勤';
+    const fields = { '種別': 'kind', '稼働部門': 'dept', '実施内容': 'content', '備考': 'note' };
+    const value = isTime ? correctTimeValue_() : document.getElementById('correct-' + fields[selectedCorrectType]).value.trim();
+    const targetDate = document.getElementById('correct-date').value;
+    const reason = document.getElementById('correct-reason').value.trim();
+    if (!targetDate) throw new Error('対象日付を選択してください');
+    if (!value) throw new Error(isTime ? '修正時間を選択してください' : '変更後の' + selectedCorrectType + 'を入力・選択してください');
+    if (!reason) throw new Error('修正理由を入力してください');
+    return { targetDate: targetDate.replace(/-/g, '/'), punchType: selectedCorrectType,
+      correctedTime: isTime ? value : '', correctedValue: isTime ? '' : value, reason };
   }
 
   function openCorrectModal() {
     if (checkPresident()) return;
-    const dateVal  = document.getElementById('correct-date').value;
-    const timeVal  = correctTimeValue_();
-    const reason   = document.getElementById('correct-reason').value.trim();
-    if (!dateVal)  { showToast('対象日付を選択してください'); return; }
-    if (!timeVal)  { showToast('修正時間を選択してください'); return; }
-    if (!reason)   { showToast('修正理由を入力してください'); return; }
+    let input;
+    try { input = correctionInput_(); } catch (err) { showToast(err.message); return; }
     document.getElementById('cm-name').textContent   = currentUser.name;
-    document.getElementById('cm-date').textContent   = dateVal.replace(/-/g,'/');
-    document.getElementById('cm-type').textContent   = selectedCorrectType;
-    document.getElementById('cm-time').textContent   = timeVal;
-    document.getElementById('cm-reason').textContent = reason;
+    document.getElementById('cm-date').textContent   = input.targetDate;
+    document.getElementById('cm-type').textContent   = input.punchType;
+    document.getElementById('cm-time').textContent   = input.correctedTime || (input.correctedValue === 'なし' ? '遠地・在宅なし（解除）' : input.correctedValue);
+    document.getElementById('cm-reason').textContent = input.reason;
     document.getElementById('correct-modal').classList.add('show');
   }
 
   async function doCorrect() {
-    const dateVal  = document.getElementById('correct-date').value;
-    const timeVal  = correctTimeValue_();
-    const reason   = document.getElementById('correct-reason').value.trim();
-    // 修正時間が空のまま送るとGAS側で NaN:NaN:00 が書き込まれるため、ここでも必ず弾く
-    if (!timeVal) {
-      closeModal('correct-modal');
-      showToast('修正時間を選択してください');
-      return;
-    }
+    if (checkPresident()) return;
+    let input;
+    try { input = correctionInput_(); } catch (err) { showToast(err.message); return; }
     closeModal('correct-modal');
     showToast('打刻修正を申請中...');
     try {
@@ -3106,10 +3151,7 @@
           requestType:   'correction',
           empId:         currentUser.id,
           empName:       currentUser.name,
-          targetDate:    dateVal.replace(/-/g,'/'),
-          punchType:     selectedCorrectType,
-          correctedTime: timeVal,
-          reason,
+          ...input,
         })
       });
       const data = await res.json();
@@ -3117,16 +3159,17 @@
         ? '打刻修正を申請しました'
         : `⚠️ 送信エラー：${data.message}`
       );
+      if (data.status !== 'ok') return;
     } catch(err) {
       showToast('⚠️ 通信エラー。後で再送してください。');
+      return;
     }
     document.getElementById('correct-date').value   = '';
     document.getElementById('correct-hour').value   = '';
     document.getElementById('correct-min').value    = '';
     document.getElementById('correct-reason').value = '';
-    document.querySelectorAll('[data-correct]').forEach(b => b.classList.remove('selected'));
-    document.querySelector('[data-correct="出勤"]').classList.add('selected');
-    selectedCorrectType = '出勤';
+    ['kind', 'dept', 'content', 'note'].forEach(field => { document.getElementById('correct-' + field).value = ''; });
+    selectCorrectType(document.querySelector('[data-correct="出勤"]'));
   }
 
   // ======== 規定外休憩／時間外移動 修正（直接上書き・承認不要） ========
