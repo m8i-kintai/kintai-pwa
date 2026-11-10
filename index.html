@@ -445,6 +445,53 @@
   }
   .toast.show { transform: translateX(-50%) translateY(0); }
 
+  /* 打刻の送信・受付確認。成功するまで記録済みの表示にはしない。 */
+  .punch-progress-overlay {
+    position: fixed; inset: 0; z-index: 1000; display: none;
+    align-items: center; justify-content: center; padding: 20px;
+    background: rgba(8,12,18,.42); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);
+  }
+  .punch-progress-overlay.show { display: flex; }
+  .punch-progress-panel {
+    box-sizing: border-box; width: min(300px, calc(100vw - 40px)); aspect-ratio: 1;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 16px; padding: 24px; border-radius: 24px; text-align: center;
+    background: rgba(24,31,37,.88); border: 1px solid rgba(255,255,255,.18); color: var(--text);
+    animation: punchPanelIn .2s ease-out;
+  }
+  body.light .punch-progress-panel { background: rgba(255,255,255,.9); border-color: rgba(0,0,0,.1); }
+  .punch-progress-symbol { position: relative; width: 64px; height: 64px; flex: 0 0 64px; color: var(--green); }
+  .punch-progress-spinner {
+    box-sizing: border-box; width: 64px; height: 64px; border: 5px solid var(--green-glow);
+    border-top-color: var(--green); border-right-color: var(--green); border-radius: 50%;
+    animation: punchSpin .85s linear infinite;
+  }
+  .punch-progress-check, .punch-progress-error { display: none; width: 64px; height: 64px; }
+  .punch-progress-check circle { fill: var(--green-glow); stroke: var(--green); stroke-width: 2; }
+  .punch-progress-check path { fill: none; stroke: var(--green); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 40; stroke-dashoffset: 40; }
+  .is-success .punch-progress-spinner, .is-error .punch-progress-spinner { display: none; }
+  .is-success .punch-progress-check { display: block; animation: punchPanelIn .25s ease-out; }
+  .is-success .punch-progress-check path { animation: punchCheck .4s .1s ease-out forwards; }
+  .is-error .punch-progress-error { display: block; color: var(--amber); }
+  .punch-progress-title { margin: 0; font-size: 20px; font-weight: 700; line-height: 1.5; }
+  .punch-progress-detail { margin: 0; min-height: 40px; font-size: 12px; line-height: 1.7; color: var(--muted); white-space: pre-line; }
+  .punch-progress-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+  .punch-progress-actions button, .punch-pending-notice button {
+    border: 1px solid var(--border2); border-radius: 10px; padding: 9px 14px;
+    background: var(--surface2); color: var(--text); font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .punch-progress-actions button:first-child { background: var(--green); color: #fff; border-color: transparent; }
+  .punch-progress-actions [hidden] { display: none; }
+  .punch-pending-notice { margin-top: 12px; padding: 12px; border: 1px solid var(--border2); border-radius: 12px; color: var(--amber); font-size: 12px; line-height: 1.7; }
+  .punch-pending-notice p { margin: 0 0 8px; }
+  @keyframes punchSpin { to { transform: rotate(360deg); } }
+  @keyframes punchPanelIn { from { opacity: 0; transform: scale(.94); } to { opacity: 1; transform: scale(1); } }
+  @keyframes punchCheck { to { stroke-dashoffset: 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    .punch-progress-panel, .punch-progress-spinner, .is-success .punch-progress-check, .is-success .punch-progress-check path { animation: none; }
+    .is-success .punch-progress-check path { stroke-dashoffset: 0; }
+  }
+
   @keyframes fadeIn  { from { opacity: 0; } to { opacity: 1; } }
   @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes shake   { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-6px)} 75%{transform:translateX(6px)} }
@@ -695,6 +742,13 @@
   </div>
 
   <!-- 規定外休憩 / 時間外移動 トグル -->
+  <div class="punch-pending-notice" id="punch-pending-notice" hidden>
+    <p id="punch-pending-text"></p>
+    <p>再送すると記録が重複する場合があります。先に受付を確認してください。</p>
+    <button type="button" onclick="confirmPendingPunch_()">受付をもう一度確認</button>
+    <button type="button" onclick="resendPendingPunch_()">同じ打刻を再送</button>
+  </div>
+
   <div class="toggle-row">
 
     <!-- 規定外休憩 -->
@@ -1519,6 +1573,22 @@
 
 <div class="toast" id="toast"></div>
 
+<div class="punch-progress-overlay" id="punch-progress-overlay" role="dialog" aria-modal="true" aria-labelledby="punch-progress-title" aria-describedby="punch-progress-detail" aria-hidden="true" tabindex="-1">
+  <div class="punch-progress-panel">
+    <div class="punch-progress-symbol" aria-hidden="true">
+      <div class="punch-progress-spinner" id="punch-progress-spinner"></div>
+      <svg class="punch-progress-check" id="punch-progress-check" viewBox="0 0 64 64"><circle cx="32" cy="32" r="29"/><path d="M18 32l10 10 19-21"/></svg>
+      <svg class="punch-progress-error" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3"><circle cx="32" cy="32" r="28"/><path d="M32 17v20m0 8v2"/></svg>
+    </div>
+    <p class="punch-progress-title" id="punch-progress-title" role="status" aria-live="polite"></p>
+    <p class="punch-progress-detail" id="punch-progress-detail"></p>
+    <div class="punch-progress-actions">
+      <button type="button" id="punch-progress-retry" onclick="confirmPendingPunch_()" hidden>もう一度確認</button>
+      <button type="button" id="punch-progress-close" onclick="closePunchProgress_()" hidden>閉じる</button>
+    </div>
+  </div>
+</div>
+
 <!-- Firebase (FCM) SDK：Web Push通知用。compat版をCDNから読み込み -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
@@ -1830,6 +1900,7 @@
   // アプリを前面に戻した時、メモリ保持のまま日付をまたいでいたら状態を更新する
   document.addEventListener('visibilitychange', function() {
     if (document.visibilityState !== 'visible' || !currentUser) return;
+    if (resumePendingPunch_()) return;
     var savedDate = null;
     try {
       const s = JSON.parse(localStorage.getItem('punchState_' + currentUser.id));
@@ -1845,11 +1916,11 @@
   });
 
   // ======== 打刻状態の保存・復元（0時にリセット） ========
-  function savePunchState() {
+  function savePunchState(workDate) {
     const now = new Date();
     const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
     const state = {
-      date:        today,
+      date:        typeof workDate === 'string' ? workDate.replace(/\//g, '-') : today,
       checkin:     document.getElementById('status-checkin').textContent,
       checkout:    document.getElementById('status-checkout').textContent,
       checkinDone:  document.getElementById('btn-checkin').disabled,
@@ -1945,6 +2016,9 @@
   // ログイン完了時の共通初期化（OTP照合・自動ログインの両方から呼ぶ）
   function enterApp(data) {
     currentUser = { id: String(data.empId), name: data.empName, dept: data.dept, flag: data.flag || 1 };
+    punchReceiptApiReady_ = data.punchReceiptVersion === 1;
+    // 通常はログイン応答で確認できる。旧版からの更新時だけ、安全なGETを先に済ませる。
+    if (!punchReceiptApiReady_) ensurePunchReceiptApi_().catch(() => {});
     document.getElementById('login-error').classList.remove('show');
     document.getElementById('otp-error').classList.remove('show');
     document.getElementById('login-screen').style.display = 'none';
@@ -1956,9 +2030,9 @@
     setTodayMin();
     loadPunchState();
     loadOvertimeStateOnLogin();
-    fetchTodayPunchStatus();
     restoreSavedSelections();
     updateReworkAvailability();
+    if (!resumePendingPunch_()) fetchTodayPunchStatus();
     // 「承認確認」ボタンは全員に出すので、通信を待たずログイン直後に即表示（後出し・位置ズレ防止）
     document.getElementById('approval-nav-btn').style.display = 'inline-block';
     checkManagerStatus();   // 件数バッジ・上長判定を後から反映
@@ -2436,6 +2510,8 @@
   }
 
   function openPunchModal(action) {
+    if (punchInFlight_) return;
+    if (getPendingPunch_()) { confirmPendingPunch_(); return; }
     if (checkPresident()) return;
     // 再出勤モードでは専用の確認モーダルへ振り分ける（通常の打刻とは別処理）
     if (reworkMode && action === 'checkin')  { openReworkModal();    return; }
@@ -2469,146 +2545,327 @@
     document.getElementById('punch-modal').classList.add('show');
   }
 
-  async function doPunch() {
-    const now   = new Date();
-    const label = pendingAction === 'checkin' ? '出勤' : '退勤';
-    // 徹夜の持ち越し中に「出勤」した場合は、前日ぶんの持ち越しを解除して今日の勤務を始める
-    if (pendingAction === 'checkin' && overnightWorkDate) {
-      overnightWorkDate = null;
-      hideOvernightBanner_();
-      try { localStorage.removeItem('punchState_' + currentUser.id); } catch(e) {}
-      document.getElementById('status-checkout').textContent = '──';
-      document.getElementById('status-checkout').className    = 'status-value';
-      document.getElementById('break-time').textContent = '──';
-      document.getElementById('move-time').textContent  = '──';
-      document.getElementById('history-list').innerHTML = '';
-    }
-    const color = pendingAction === 'checkin' ? '#3dba7a' : '#e05a5a';
-    const sid   = pendingAction === 'checkin' ? 'status-checkin' : 'status-checkout';
-    const bid   = pendingAction === 'checkin' ? 'btn-checkin'    : 'btn-checkout';
+  const PUNCH_CONFIRM_TIMEOUT_MS = 30000;
+  const PUNCH_REQUEST_TIMEOUT_MS = 10000;
+  let punchInFlight_ = false;
+  let punchReceiptApiReady_ = false;
+  let pendingPunchMemory_ = null;
+  let punchPreviousFocus_ = null;
 
-    // ── 打刻時刻補正 ──────────────────────────
-    // 2026年9月以降＝実打刻（1分単位・丸めなし。9:00下限などは勤務表の数式側で処理）
-    // 2026年8月まで＝旧方式（出勤は15分切り捨て＋9:00補正／退勤は15分切り上げ）
+  function getPendingPunch_() {
+    if (!currentUser) return null;
+    let punch = pendingPunchMemory_;
+    if (!punch || punch.empId !== String(currentUser.id)) {
+      try { punch = JSON.parse(lsGet_('pendingPunch_' + currentUser.id) || 'null'); } catch (e) { punch = null; }
+    }
+    return punch && punch.version === 1 && punch.empId === String(currentUser.id) &&
+      (punch.action === 'checkin' || punch.action === 'checkout') &&
+      typeof punch.date === 'string' && typeof punch.time === 'string' &&
+      Number.isSafeInteger(punch.afterRow) && punch.afterRow >= 0 ? punch : null;
+  }
+
+  function savePendingPunch_(punch) {
+    pendingPunchMemory_ = punch;
+    lsSet_('pendingPunch_' + punch.empId, JSON.stringify(punch));
+    renderPendingPunch_();
+  }
+
+  function clearPendingPunch_(punch) {
+    pendingPunchMemory_ = null;
+    lsDel_('pendingPunch_' + punch.empId);
+    renderPendingPunch_();
+  }
+
+  function renderPendingPunch_() {
+    const notice = document.getElementById('punch-pending-notice');
+    const punch = getPendingPunch_();
+    notice.hidden = !punch;
+    if (punch) document.getElementById('punch-pending-text').textContent =
+      punch.date + ' ' + punch.time.slice(0, 5) + ' の' + punch.label + 'は、まだ受付を確認できていません。まず受付をもう一度確認してください。';
+  }
+
+  function showPunchProgress_(state, title, detail) {
+    const overlay = document.getElementById('punch-progress-overlay');
+    if (!overlay.classList.contains('show')) punchPreviousFocus_ = document.activeElement;
+    overlay.className = 'punch-progress-overlay show' + (state === 'success' ? ' is-success' : state === 'error' ? ' is-error' : '');
+    overlay.setAttribute('aria-hidden', 'false');
+    overlay.setAttribute('aria-busy', state === 'pending' ? 'true' : 'false');
+    document.getElementById('punch-progress-title').textContent = title;
+    document.getElementById('punch-progress-detail').textContent = detail;
+    const retry = document.getElementById('punch-progress-retry');
+    const close = document.getElementById('punch-progress-close');
+    retry.hidden = state !== 'error' || !getPendingPunch_();
+    close.hidden = state === 'pending';
+    (state === 'pending' ? overlay : retry.hidden ? close : retry).focus();
+  }
+
+  function closePunchProgress_() {
+    if (punchInFlight_) return;
+    const overlay = document.getElementById('punch-progress-overlay');
+    overlay.className = 'punch-progress-overlay';
+    overlay.setAttribute('aria-hidden', 'true');
+    if (punchPreviousFocus_ && punchPreviousFocus_.isConnected && !punchPreviousFocus_.disabled) punchPreviousFocus_.focus();
+  }
+
+  async function punchJsonRequest_(url, payload, timeoutMs) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs || PUNCH_REQUEST_TIMEOUT_MS);
+    try {
+      const options = { cache: 'no-store', signal: controller.signal };
+      if (payload) {
+        options.method = 'POST';
+        options.body = JSON.stringify(Object.assign({}, payload, { authToken: currentAuthToken }));
+      }
+      const response = await fetch(url, options);
+      const data = await response.json();
+      if (!data || data.status !== 'ok') {
+        const error = new Error((data && data.message) || '受付を確認できませんでした');
+        error.code = data && data.code;
+        throw error;
+      }
+      return data;
+    } finally { clearTimeout(timer); }
+  }
+
+  async function ensurePunchReceiptApi_() {
+    // 旧GASは未知のPOSTを打刻として扱うため、安全なGETで対応版か先に確認する。
+    if (!punchReceiptApiReady_) {
+      const info = await punchJsonRequest_(FORM_GAS_URL + '?action=punchReceiptInfo');
+      if (info.punchReceiptVersion !== 1) throw new Error('現在、打刻の受付確認を利用できません。管理者に連絡してください。');
+      punchReceiptApiReady_ = true;
+    }
+  }
+
+  async function preparePunchReceipt_(empId) {
+    await ensurePunchReceiptApi_();
+    const data = await punchJsonRequest_(FORM_GAS_URL, { requestType: 'punchReceipt', mode: 'prepare', empId: empId });
+    if (!Number.isSafeInteger(data.lastRow) || data.lastRow < 0) throw new Error('送信先を確認できませんでした');
+    return data;
+  }
+
+  async function checkPunchReceipt_(punch, timeoutMs) {
+    await ensurePunchReceiptApi_();
+    return punchJsonRequest_(FORM_GAS_URL, {
+      requestType: 'punchReceipt', mode: 'check', empId: punch.empId, afterRow: punch.afterRow,
+      date: punch.date, action: punch.action, time: punch.time.split(':').slice(0, 2).join(':')
+    }, timeoutMs);
+  }
+
+  async function waitForPunchReceipt_(punch) {
+    const deadline = Date.now() + PUNCH_CONFIRM_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      try {
+        const data = await checkPunchReceipt_(punch, Math.min(PUNCH_REQUEST_TIMEOUT_MS, Math.max(1, deadline - Date.now())));
+        if (data.found === true && Number.isSafeInteger(data.receiptRow) && data.receiptRow > punch.afterRow) return data;
+      } catch (error) {
+        if (['invalid', 'input', 'baseline_changed', 'receipt_range', 'unavailable'].includes(error.code)) throw error;
+      }
+      if (Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, Math.min(1200, deadline - Date.now())));
+    }
+    throw new Error('まだ受付を確認できていません。もう一度確認してください。');
+  }
+
+  function punchLocation_() {
+    return new Promise(resolve => {
+      let settled = false;
+      const finish = value => { if (!settled) { settled = true; clearTimeout(timer); resolve(value); } };
+      const timer = setTimeout(() => finish({ lat: '', lng: '' }), 5500);
+      try {
+        navigator.geolocation.getCurrentPosition(pos => finish({
+          lat: pos.coords.latitude.toFixed(6), lng: pos.coords.longitude.toFixed(6)
+        }), () => finish({ lat: '', lng: '' }), { timeout: 5000, maximumAge: 30000 });
+      } catch (e) { finish({ lat: '', lng: '' }); }
+    });
+  }
+
+  function postPunchForm_(punch) {
+    const fields = { empId: punch.empId, action: punch.label, type: punch.type, date: punch.date, time: punch.time,
+      dept: punch.dept, content: punch.content, breakMins: punch.breakMins, moveMins: punch.moveMins, lat: punch.lat, lng: punch.lng };
+    const formData = new FormData();
+    Object.keys(fields).forEach(key => formData.append(FORM_ENTRIES[key], fields[key] == null ? '' : fields[key]));
+    // keepaliveにはサイズ上限があるので、大きな実施内容は通常の送信を使う。
+    const size = new Blob(Object.keys(fields).map(key => String(fields[key] == null ? '' : fields[key]))).size;
+    return fetch(FORM_URL, { method: 'POST', mode: 'no-cors', body: formData, keepalive: size < 48000 });
+  }
+
+  function markPunchBusy_(busy) {
+    ['btn-checkin', 'btn-checkout'].forEach(id => document.getElementById(id).setAttribute('aria-busy', busy ? 'true' : 'false'));
+  }
+
+  async function runPunch_(punch, modalId, resend) {
+    if (punchInFlight_ || !currentUser) return;
+    if (!resend && getPendingPunch_()) return confirmPendingPunch_();
+    punchInFlight_ = true;
+    markPunchBusy_(true);
+    if (modalId) closeModal(modalId);
+    showPunchProgress_('pending', punch.label + 'を送信中', '完了が表示されるまで\nこのままお待ちください。');
+    let submitted = !!resend;
+    try {
+      if (!resend) {
+        const results = await Promise.all([preparePunchReceipt_(punch.empId), punchLocation_()]);
+        punch.afterRow = results[0].lastRow;
+        punch.lat = results[1].lat; punch.lng = results[1].lng;
+        punch.version = 1;
+        savePendingPunch_(punch);
+      } else {
+        // 明示的な再送でも、先に元の回答を確認し、届いていた場合は再POSTしない。
+        const existing = await checkPunchReceipt_(punch);
+        if (existing.found === true && Number.isSafeInteger(existing.receiptRow) && existing.receiptRow > punch.afterRow) {
+          finishPunchReceipt_(punch);
+          return;
+        }
+      }
+      submitted = true;
+      postPunchForm_(punch).catch(() => {}); // 通信の成否では完了にしない。回答の到達確認を続ける。
+      showPunchProgress_('pending', punch.label + 'の受付を確認中', punch.time.slice(0, 5) + '\nこのままお待ちください。');
+      await waitForPunchReceipt_(punch);
+      finishPunchReceipt_(punch);
+    } catch (error) {
+      showPunchProgress_('error', submitted ? '受付を確認できません' : '送信できませんでした',
+        submitted ? (error.message || 'もう一度確認してください。') : '打刻は送信していません。\n' + (error.message || '時間をおいてお試しください。'));
+    } finally {
+      punchInFlight_ = false;
+      markPunchBusy_(false);
+      renderPendingPunch_();
+    }
+  }
+
+  function finishPunchReceipt_(punch) {
+    if (!currentUser || String(currentUser.id) !== punch.empId) throw new Error('打刻した社員でログインし直して、受付を確認してください。');
+    applyConfirmedPunch_(punch);
+    clearPendingPunch_(punch);
+    showPunchProgress_('success', punch.label + '打刻 完了', punch.date + ' ' + punch.time.slice(0, 5) + '\nフォームへの記録を確認しました。');
+  }
+
+  async function confirmPendingPunch_() {
+    if (punchInFlight_) return;
+    const punch = getPendingPunch_();
+    if (!punch) return;
+    punchInFlight_ = true;
+    markPunchBusy_(true);
+    showPunchProgress_('pending', punch.label + 'の受付を確認中', punch.time.slice(0, 5) + '\nこのままお待ちください。');
+    try {
+      await waitForPunchReceipt_(punch);
+      finishPunchReceipt_(punch);
+    } catch (error) {
+      showPunchProgress_('error', '受付を確認できません', error.message || 'もう一度確認してください。');
+    } finally { punchInFlight_ = false; markPunchBusy_(false); renderPendingPunch_(); }
+  }
+
+  function resendPendingPunch_() {
+    const punch = getPendingPunch_();
+    if (punch && !punchInFlight_) return runPunch_(punch, null, true);
+  }
+
+  function resumePendingPunch_() {
+    renderPendingPunch_();
+    if (!getPendingPunch_()) return false;
+    if (!punchInFlight_) confirmPendingPunch_();
+    return true;
+  }
+
+  async function doPunch() {
+    if (punchInFlight_ || !currentUser) return;
+    if (getPendingPunch_()) return confirmPendingPunch_();
+    const action = pendingAction;
+    if (action !== 'checkin' && action !== 'checkout') return;
+    if (!selectedType) { showToast('種別を選択してください'); return; }
+    const dept = document.getElementById('work-dept').value;
+    const content = document.getElementById('work-content').value.trim();
+    if (action === 'checkout' && (!dept || !content)) { showToast('稼働部門と実施内容を入力してください'); return; }
+    const now = new Date();
+    const label = action === 'checkin' ? '出勤' : '退勤';
     const punchTime = new Date(now);
     const ymNow = now.getFullYear() * 100 + (now.getMonth() + 1);
     if (ymNow < 202609) {
-      if (label === '出勤') {
+      if (action === 'checkin') {
         punchTime.setMinutes(Math.floor(punchTime.getMinutes() / 15) * 15, 0, 0);
         if (selectedType !== '早出' && selectedType !== 'フレックス') {
           const nine = new Date(now); nine.setHours(9, 0, 0, 0);
           if (punchTime < nine) punchTime.setHours(9, 0, 0, 0);
         }
       } else {
-        const m = punchTime.getMinutes(), rem = m % 15;
-        if (rem !== 0) punchTime.setMinutes(m + (15 - rem), 0, 0);
-        else           punchTime.setSeconds(0, 0);
+        const rem = punchTime.getMinutes() % 15;
+        if (rem !== 0) punchTime.setMinutes(punchTime.getMinutes() + 15 - rem, 0, 0);
+        else punchTime.setSeconds(0, 0);
       }
-    } else {
-      // 新方式（2026年9月〜）：実打刻のまま。秒だけ落として1分単位で記録
-      punchTime.setSeconds(0, 0);
-    }
-
+    } else punchTime.setSeconds(0, 0);
     const pad = n => String(n).padStart(2, '0');
-    let t = `${pad(punchTime.getHours())}:${pad(punchTime.getMinutes())}:${pad(punchTime.getSeconds())}`;
-    let d = `${now.getFullYear()}/${pad(now.getMonth()+1)}/${pad(now.getDate())}`;
-    // 徹夜シフト：前日ぶんの退勤は、出勤日の行へ24時以降の時刻で記録する
-    let overnight = null;
-    if (label === '退勤') {
-      overnight = overnightCheckout_(now);
-      if (overnight) { t = overnight.time + ':00'; d = overnight.date; }
+    let time = `${pad(punchTime.getHours())}:${pad(punchTime.getMinutes())}:00`;
+    let date = `${now.getFullYear()}/${pad(now.getMonth() + 1)}/${pad(now.getDate())}`;
+    const overnight = action === 'checkout' ? overnightCheckout_(now) : null;
+    if (overnight) { time = overnight.time + ':00'; date = overnight.date; }
+    const breakText = document.getElementById('break-time').textContent;
+    const moveText = document.getElementById('move-time').textContent;
+    const punch = {
+      id: now.getTime().toString(36) + '_' + Math.random().toString(36).slice(2),
+      empId: String(currentUser.id), action, label, date, time, type: selectedType, kind: 'normal',
+      nowMs: now.getTime(), dept, content,
+      breakMins: breakText.includes('計') ? (parseInt(breakText.replace('計 ', ''), 10) || 0) : 0,
+      moveMins: moveText.includes('計') ? (parseInt(moveText.replace('計 ', ''), 10) || 0) : 0,
+      remote: isRemoteWork, region: regionEnabled, overnight: !!overnight,
+      discardOvernight: action === 'checkin' && !!overnightWorkDate
+    };
+    return runPunch_(punch, 'punch-modal');
+  }
+
+  function applyConfirmedPunch_(punch) {
+    if (!currentUser || String(currentUser.id) !== punch.empId) return;
+    if (lsGet_('confirmedPunch_' + punch.empId) === punch.id) return;
+    const isCheckin = punch.action === 'checkin';
+    selectedType = punch.type;
+    document.getElementById('type-select').value = punch.type;
+    if (punch.discardOvernight) {
+      overnightWorkDate = null;
+      hideOvernightBanner_();
+      lsDel_('punchState_' + punch.empId);
+      document.getElementById('status-checkout').textContent = '──';
+      document.getElementById('status-checkout').className = 'status-value';
+      document.getElementById('break-time').textContent = '──';
+      document.getElementById('move-time').textContent = '──';
+      document.getElementById('history-list').innerHTML = '';
     }
-
-    // 位置情報取得
-    let lat = '', lng = '';
-    try {
-      const pos = await new Promise((resolve, reject) =>
-        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 })
-      );
-      lat = pos.coords.latitude.toFixed(6);
-      lng = pos.coords.longitude.toFixed(6);
-    } catch(e) { /* 位置情報取得失敗は無視 */ }
-
-    const deptVal    = document.getElementById('work-dept').value;
-    const contentVal = document.getElementById('work-content').value.trim();
-    const dept    = deptVal;
-    const cont2   = contentVal;
-    const breakEl = document.getElementById('break-time').textContent;
-    const moveEl  = document.getElementById('move-time').textContent;
-    const breakMins = breakEl.includes('計') ? parseInt(breakEl.replace('計 ','').replace('分','')) : 0;
-    const moveMins  = moveEl.includes('計')  ? parseInt(moveEl.replace('計 ','').replace('分',''))  : 0;
-
-    // UI更新
-    document.getElementById(sid).textContent = t.slice(0,5);
-    document.getElementById(sid).className   = 'status-value recorded';
-    document.getElementById(bid).disabled    = true;
-    // 出勤打刻後は退勤ボタンを有効化
-    if (label === '出勤') document.getElementById('btn-checkout').disabled = false;
-    addHistory(label, selectedType, t, color);
-    closeModal('punch-modal');
-    showToast(`${label}打刻中...`);
-
-    // Googleフォームに送信（アカウント不要）
-    try {
-      const formData = new FormData();
-      formData.append(FORM_ENTRIES.empId,     currentUser.id);
-      formData.append(FORM_ENTRIES.action,    label);
-      formData.append(FORM_ENTRIES.type,      selectedType);
-      formData.append(FORM_ENTRIES.time,      t);
-      formData.append(FORM_ENTRIES.date,      d);
-      formData.append(FORM_ENTRIES.dept,      dept);
-      formData.append(FORM_ENTRIES.content,   cont2);
-      formData.append(FORM_ENTRIES.breakMins, breakMins);   // 分で送信（GAS側で時間割合に変換・1分単位）
-      formData.append(FORM_ENTRIES.moveMins,  moveMins);
-      formData.append(FORM_ENTRIES.lat,       lat);
-      formData.append(FORM_ENTRIES.lng,       lng);
-      await fetch(FORM_URL, { method: 'POST', mode: 'no-cors', body: formData });
-      // 在宅ONかつ出勤打刻 → 備考欄(R列)に「在宅」を記録
-      if (label === '出勤' && isRemoteWork) {
-        fetch(FORM_GAS_URL, {
-          method: 'POST',
-          body: JSON.stringify({ requestType: 'remoteWork', empId: currentUser.id, date: d })
-        }).catch(() => {});
-      }
-      showToast(`${label}打刻しました（${t.slice(0,5)}）`);
-      savePunchState();
-      if (label === '出勤') {
-        // 新しい勤務の開始 → 前日以前の呼び出し用の控えは破棄する
-        clearCallbackShift();
-        updateReworkAvailability();
-      }
-      // 退勤打刻時は残業申請状態をリセット
-      if (label === '退勤') {
+    const status = document.getElementById(isCheckin ? 'status-checkin' : 'status-checkout');
+    status.textContent = punch.time.split(':').slice(0, 2).join(':');
+    status.className = 'status-value recorded';
+    document.getElementById(isCheckin ? 'btn-checkin' : 'btn-checkout').disabled = true;
+    if (isCheckin) document.getElementById('btn-checkout').disabled = false;
+    addHistory(punch.kind === 'rework' ? '退勤（再出勤）' : punch.label,
+      punch.kind === 'rework' ? '' : punch.type, punch.time, isCheckin ? '#3dba7a' : '#e05a5a');
+    // 受付自体は確認済み。端末保存や補助表示の失敗で未送信扱いへ戻さない。
+    const local = effect => { try { effect(); } catch (error) { console.warn('打刻後の端末更新:', error); } };
+    if (isCheckin) {
+      local(() => { clearCallbackShift(); updateReworkAvailability(); });
+    } else {
+      local(() => {
         overtimeApplied = false;
-        if (currentUser) saveOvertimeState(currentUser.id, false);
+        saveOvertimeState(punch.empId, false);
         resetOvertimeUI();
-        // 遠地トグルがONなら、備考へ「遠地」を追記（上書きせず追加）
-        if (regionEnabled) {
-          fetch(FORM_GAS_URL, {
-            method: 'POST',
-            body: JSON.stringify({ requestType: 'regionNote', empId: currentUser.id, date: d, region: '遠地' })
-          }).catch(() => {});
-        }
-        // 呼び出し用の控えを保存（この退勤を起点に、翌朝5:00まで再出勤できる）
-        saveCallbackShift(d, now.getTime(), breakMins, moveMins, dept, cont2, selectedType);
+      });
+      local(() => {
+        saveCallbackShift(punch.date, punch.nowMs, punch.breakMins, punch.moveMins, punch.dept, punch.content, punch.type);
+        if (punch.kind === 'rework') exitReworkMode();
         updateReworkAvailability();
-        // 徹夜シフトの退勤を処理したら、持ち越しを解除して今日の初期状態に戻す
-        if (overnight) {
-          overnightWorkDate = null;
-          hideOvernightBanner_();
-          try { localStorage.removeItem('punchState_' + currentUser.id); } catch(err) {}
-          document.getElementById('status-checkin').textContent  = '──';
-          document.getElementById('status-checkout').textContent = '──';
-          document.getElementById('status-checkin').className  = 'status-value';
-          document.getElementById('status-checkout').className = 'status-value';
-          document.getElementById('btn-checkin').disabled  = false;
-          document.getElementById('btn-checkout').disabled = true;
-          document.getElementById('break-time').textContent = '──';
-          document.getElementById('move-time').textContent  = '──';
-        }
-      }
-    } catch(e) {
-      showToast('⚠️ 通信エラー。後で再送してください。');
+      });
+    }
+    local(() => savePunchState(punch.date));
+    if (punch.overnight) {
+      overnightWorkDate = null;
+      hideOvernightBanner_();
+      lsDel_('punchState_' + punch.empId);
+      resetPunchUIForToday_();
+    } else {
+      // 前日の未確認打刻を翌日に確認しても、「今日の打刻」として保存しない。
+      const now = new Date();
+      const today = now.getFullYear() + '/' + String(now.getMonth() + 1).padStart(2, '0') + '/' + String(now.getDate()).padStart(2, '0');
+      if (punch.date !== today) local(() => loadPunchState());
+    }
+    lsSet_('confirmedPunch_' + punch.empId, punch.id);
+    if ((isCheckin && punch.remote) || (!isCheckin && punch.region)) {
+      const note = isCheckin
+        ? { requestType: 'remoteWork', empId: punch.empId, date: punch.date }
+        : { requestType: 'regionNote', empId: punch.empId, date: punch.date, region: '遠地' };
+      try { fetch(FORM_GAS_URL, { method: 'POST', body: JSON.stringify(note), keepalive: true }).catch(() => {}); } catch (e) {}
     }
   }
 
@@ -3327,7 +3584,7 @@
 
   function showToast(msg) {
     const t = document.getElementById('toast');
-    t.textContent = '✓ ' + msg;
+    t.textContent = msg;
     t.classList.add('show');
     setTimeout(() => t.classList.remove('show'), 2800);
   }
@@ -3461,6 +3718,8 @@
 
   // 再出勤の「出勤」確認モーダルを開く
   function openReworkModal() {
+    if (punchInFlight_) return;
+    if (getPendingPunch_()) { confirmPendingPunch_(); return; }
     const rec = loadCallbackShift();
     if (!rec) { showToast('再出勤の記録が見つかりません'); exitReworkMode(); updateReworkAvailability(); return; }
     const now    = new Date();
@@ -3477,6 +3736,8 @@
 
   // 再出勤の「出勤」確定：空き時間を規定外休憩へ加算（サーバーには送らない）
   function doReworkCheckin() {
+    if (punchInFlight_) return;
+    if (getPendingPunch_()) { confirmPendingPunch_(); return; }
     const rec = loadCallbackShift();
     if (!rec) { closeModal('rework-modal'); showToast('再出勤の記録が見つかりません'); exitReworkMode(); updateReworkAvailability(); return; }
     const now    = new Date();
@@ -3502,6 +3763,8 @@
 
   // 再出勤の「退勤」確認モーダルを開く
   function openReworkOutModal() {
+    if (punchInFlight_) return;
+    if (getPendingPunch_()) { confirmPendingPunch_(); return; }
     const rec = loadCallbackShift();
     if (!rec) { showToast('再出勤の記録が見つかりません'); exitReworkMode(); updateReworkAvailability(); return; }
     const md = rec.workDate.split('/');
@@ -3537,52 +3800,19 @@
 
   // 再出勤の「退勤」確定：勤務日の行に、24時超え表記で退勤を書き込む
   async function doReworkCheckout() {
+    if (punchInFlight_ || !currentUser) return;
+    if (getPendingPunch_()) return confirmPendingPunch_();
     const rec = loadCallbackShift();
     if (!rec) { closeModal('rework-out-modal'); showToast('再出勤の記録が見つかりません'); exitReworkMode(); updateReworkAvailability(); return; }
-    const now       = new Date();
-    const st        = reworkSheetTime(now, rec.workDate);   // { hour, min, label }
-    const totalMins = currentBreakMins();
-
-    let lat = '', lng = '';
-    try {
-      const pos = await new Promise((resolve, reject) =>
-        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 })
-      );
-      lat = pos.coords.latitude.toFixed(6);
-      lng = pos.coords.longitude.toFixed(6);
-    } catch(e) { /* 位置情報は任意 */ }
-
-    closeModal('rework-out-modal');
-    showToast('退勤を記録中...');
-    try {
-      const fd = new FormData();
-      fd.append(FORM_ENTRIES.empId,     currentUser.id);
-      fd.append(FORM_ENTRIES.action,    '退勤');
-      fd.append(FORM_ENTRIES.type,      rec.type || '通常');  // フォームの種別は必須。空だと送信が拒否されるため控えの種別を送る（退勤処理はC列を書き換えない）
-      fd.append(FORM_ENTRIES.time,      st.label + ':00');   // 例 "27:00:00"
-      fd.append(FORM_ENTRIES.date,      rec.workDate);       // ★今日ではなく勤務日に書く
-      fd.append(FORM_ENTRIES.dept,      rec.dept || '');     // 初回退勤の稼働部門を引き継ぐ
-      fd.append(FORM_ENTRIES.content,   rec.content || '');  // 初回退勤の実施内容を引き継ぐ
-      fd.append(FORM_ENTRIES.breakMins, totalMins);              // 分で送信（GAS側で時間割合に変換・1分単位）
-      fd.append(FORM_ENTRIES.moveMins,  (rec.moveMins || 0));
-      fd.append(FORM_ENTRIES.lat,       lat);
-      fd.append(FORM_ENTRIES.lng,       lng);
-      await fetch(FORM_URL, { method: 'POST', mode: 'no-cors', body: fd });
-
-      document.getElementById('status-checkout').textContent = st.label;
-      document.getElementById('status-checkout').className   = 'status-value recorded';
-      document.getElementById('btn-checkout').disabled       = true;
-      addHistory('退勤（再出勤）', '', st.label, '#e05a5a');
-
-      // 次の呼び出しに備えて控えを更新（今回の退勤を新たな起点にする）
-      saveCallbackShift(rec.workDate, now.getTime(), totalMins, rec.moveMins, rec.dept, rec.content, rec.type);
-      exitReworkMode();
-      updateReworkAvailability();
-      const md = rec.workDate.split('/');
-      showToast('退勤しました（' + Number(md[1]) + '/' + Number(md[2]) + ' 分 / ' + st.label + '）');
-    } catch(e) {
-      showToast('⚠️ 通信エラー。後で再送してください。');
-    }
+    const now = new Date();
+    const st = reworkSheetTime(now, rec.workDate);
+    return runPunch_({
+      id: now.getTime().toString(36) + '_' + Math.random().toString(36).slice(2),
+      empId: String(currentUser.id), action: 'checkout', label: '退勤', kind: 'rework',
+      date: rec.workDate, time: st.label + ':00', type: rec.type || '通常', nowMs: now.getTime(),
+      breakMins: currentBreakMins(), moveMins: rec.moveMins || 0,
+      dept: rec.dept || '', content: rec.content || '', remote: false, region: false, overnight: false
+    }, 'rework-out-modal');
   }
 
   // ======== 規定外休憩 ========
@@ -3683,10 +3913,12 @@
 
   // ======== サーバーから当日打刻状況を取得 ========
   async function fetchTodayPunchStatus() {
-    if (!currentUser) return;
+    if (!currentUser || punchInFlight_ || getPendingPunch_()) return;
+    const empId = String(currentUser.id);
     try {
       const res  = await fetch(FORM_GAS_URL + '?empId=' + encodeURIComponent(currentUser.id));
       const data = await res.json();
+      if (!currentUser || String(currentUser.id) !== empId || punchInFlight_ || getPendingPunch_()) return;
       if (data.status !== 'ok') return;
 
       // 出勤データがあれば反映
@@ -3910,6 +4142,16 @@
   document.getElementById('emp-id').addEventListener('keydown', e => { if (e.key === 'Enter') sendOtp(); });
   document.getElementById('otp-code').addEventListener('keydown', e => { if (e.key === 'Enter') verifyOtp(); });
   tryAutoLogin();   // 記憶済み端末なら自動ログイン
+  window.addEventListener('online', function() { if (currentUser) resumePendingPunch_(); });
+  document.getElementById('punch-progress-overlay').addEventListener('keydown', function(event) {
+    if (event.key === 'Escape') { event.preventDefault(); closePunchProgress_(); }
+    if (event.key !== 'Tab') return;
+    const buttons = Array.from(this.querySelectorAll('button')).filter(button => !button.hidden && !button.disabled);
+    if (!buttons.length) { event.preventDefault(); this.focus(); return; }
+    const first = buttons[0], last = buttons[buttons.length - 1];
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === this)) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && (document.activeElement === last || document.activeElement === this)) { event.preventDefault(); first.focus(); }
+  });
   document.getElementById('punch-modal').addEventListener('click', function(e) { if (e.target===this) closeModal('punch-modal'); });
   document.getElementById('apply-modal').addEventListener('click',   function(e) { if (e.target===this) closeModal('apply-modal'); });
   document.getElementById('correct-modal').addEventListener('click', function(e) { if (e.target===this) closeModal('correct-modal'); });
