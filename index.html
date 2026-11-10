@@ -619,7 +619,7 @@
           <span class="toggle-slider"></span>
         </span>
       </label>
-      <button class="apply-screen-btn" id="approval-nav-btn" onclick="showApprovalScreen()" style="display:none;position:relative;">承認確認<span id="approval-badge" style="display:none;position:absolute;top:-7px;right:-7px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;background:#e05a5a;color:#fff;font-size:10px;line-height:17px;text-align:center;font-weight:700;"></span></button>
+      <button class="apply-screen-btn" id="approval-nav-btn" onclick="showApprovalScreen()" style="display:none;position:relative;">各種確認<span id="approval-badge" style="display:none;position:absolute;top:-7px;right:-7px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;background:#e05a5a;color:#fff;font-size:10px;line-height:17px;text-align:center;font-weight:700;"></span></button>
       <button class="apply-screen-btn" onclick="showApplyScreen()">各種申請</button>
       <button class="logout-btn" onclick="doLogout()">ログアウト</button>
     </div>
@@ -885,11 +885,13 @@
 <div class="screen" id="approval-screen">
   <div class="apply-screen-header">
     <button class="back-btn" onclick="showPunchScreen()">◀ 打刻画面</button>
-    <div style="font-size:15px;font-weight:700;color:var(--text);">承認確認</div>
+    <div style="font-size:15px;font-weight:700;color:var(--text);">各種確認</div>
     <button class="back-btn" onclick="loadApprovalQueue(true)" title="再読み込み" style="min-width:44px;">↻</button>
   </div>
 
   <div id="approval-status" style="padding:24px 8px;text-align:center;color:var(--muted);font-size:13px;">読み込み中…</div>
+
+  <section id="audit-flow-section" style="display:none"></section>
 
   <!-- 自分の申請状況（全員） -->
   <div id="approval-my-section" style="display:none;">
@@ -1923,6 +1925,7 @@
   }
 
   // ======== メールOTPログイン（案B：パスワードレス＋端末記憶） ========
+  let currentAuthToken = '';
   let otpEmpId = null;         // STEP2で照合する社員番号
   let resendTimer = null;      // 再送クールダウン用
 
@@ -2004,6 +2007,7 @@
         deviceLabel: (navigator.platform || '')
       });
       if (data.status === 'ok') {
+        currentAuthToken = data.token || '';
         if (remember && data.token) {
           lsSet_('authToken_' + data.empId, data.token);
           lsSet_('lastEmpId', String(data.empId));
@@ -2086,6 +2090,7 @@
     try {
       const data = await postJson_({ requestType: 'deviceVerify', empId: id, token });
       if (data.status === 'ok') {
+        currentAuthToken = token;
         enterApp(data);
       } else if (data.code === 'invalid' || data.code === 'notfound') {
         lsDel_('authToken_' + id);   // 失効した端末トークンは破棄
@@ -2095,6 +2100,7 @@
 
   // POST共通ヘルパー（JSON以外＝混雑ページ時は _busy を立てて投げる）
   async function postJson_(payload) {
+    if (currentUser && currentAuthToken) payload = Object.assign({}, payload, { authToken: currentAuthToken });
     const res = await fetch(FORM_GAS_URL, { method: 'POST', body: JSON.stringify(payload) });
     try {
       return await res.json();
@@ -2120,6 +2126,7 @@
     document.getElementById('apply-screen').scrollTop = 0;
   }
   function showPunchScreen() {
+    if (typeof afHideEditor_ === 'function') afHideEditor_();
     document.getElementById('apply-screen').style.display = 'none';
     document.getElementById('approval-screen').style.display = 'none';
     document.getElementById('punch-screen').style.display = 'flex';
@@ -2127,6 +2134,7 @@
 
   // ======== 承認確認（自分の申請状況＋上長は部下の承認） ========
   let approvalItems = [];        // 部下の未承認（上長のみ）
+  let auditFlowItems = [];
   let myAppItems    = [];        // 自分の申請状況（全員）
   let isManagerUser = false;
 
@@ -2142,7 +2150,7 @@
     if (!currentUser) return;
     try {
       lsSet_(APPROVAL_CACHE(currentUser.id), JSON.stringify({
-        isManager: isManagerUser, myItems: myAppItems, pending: approvalItems, ts: Date.now()
+        isManager: isManagerUser, myItems: myAppItems, pending: approvalItems, auditItems: auditFlowItems, ts: Date.now()
       }));
     } catch (e) {}
   }
@@ -2162,6 +2170,8 @@
         isManagerUser = !!c.isManager;
         myAppItems    = c.myItems || [];
         approvalItems = c.pending || [];
+        auditFlowItems = c.auditItems || [];
+        if (typeof renderAuditFlow_ === 'function') renderAuditFlow_();
         document.getElementById('approval-status').style.display = 'none';
         renderMyItems_();
         renderApprovalItems_();
@@ -2177,8 +2187,10 @@
   // ボタンは全員に表示する（自分の申請状況を確認できるため）。
   async function checkManagerStatus() {
     if (!currentUser) return;
+    const callerId = currentUser.id, callerToken = currentAuthToken;
     try {
       const data = await postJson_({ requestType: 'approvalQueue', empId: currentUser.id, summaryOnly: true });
+      if (!currentUser || currentUser.id !== callerId || currentAuthToken !== callerToken) return;
       const btn = document.getElementById('approval-nav-btn');
       if (data && data.status === 'ok') {
         isManagerUser = !!data.isManager;
@@ -2213,33 +2225,42 @@
   function refreshBadge_() {
     const myPending  = myAppItems.filter(it => it.status === '未承認').length;
     const subPending = isManagerUser ? approvalItems.length : 0;
-    updateApprovalBadge_(myPending + subPending);
+    updateApprovalBadge_(myPending + subPending + auditFlowItems.filter(it => it.canEdit).length);
   }
 
   async function loadApprovalQueue(isRefresh, silent) {
+    if (!currentUser) return;
+    const callerId = currentUser.id, callerToken = currentAuthToken;
     const statusEl = document.getElementById('approval-status');
     if (!silent) {
       statusEl.style.display = 'block';
       statusEl.textContent = isRefresh ? '再読み込み中…' : '読み込み中…';
+      document.getElementById('audit-flow-section').style.display = 'none';
       document.getElementById('approval-my-section').style.display = 'none';
       document.getElementById('approval-mgr-section').style.display = 'none';
     }
     try {
       const data = await postJson_({ requestType: 'approvalQueue', empId: currentUser.id });
+      if (!currentUser || currentUser.id !== callerId || currentAuthToken !== callerToken) return;
       if (!data || data.status !== 'ok') {
-        if (!silent) statusEl.textContent = '取得に失敗しました。' + ((data && data.message) || '');
+        statusEl.style.display = 'block';
+        statusEl.textContent = '最新情報の取得に失敗しました。' + ((data && data.message) || '');
         return;
       }
       isManagerUser = !!data.isManager;
       myAppItems    = data.myItems || [];
       approvalItems = data.pending || data.items || [];
+      auditFlowItems = data.auditItems || [];
+      if (typeof renderAuditFlow_ === 'function') renderAuditFlow_();
       saveApprovalCache_();   // 次回すぐ表示できるよう保存
       refreshBadge_();        // 自分の未承認＋（上長なら）部下の未承認
       statusEl.style.display = 'none';
       renderMyItems_();
       renderApprovalItems_();
     } catch (e) {
-      if (!silent) statusEl.textContent = '通信エラー：' + e.message;
+      if (!currentUser || currentUser.id !== callerId || currentAuthToken !== callerToken) return;
+      statusEl.style.display = 'block';
+      statusEl.textContent = '最新情報の取得に失敗しました：' + e.message;
     }
   }
 
@@ -2334,14 +2355,14 @@
     const payload = {
       requestType: 'approvalAction', empId: currentUser.id, decision: decision, src: it.src
     };
-    if (it.src === 'wfh') { payload.reqId = it.reqId; }
+    if (it.src === 'wfh' || it.src === 'audit') { payload.reqId = it.reqId; }
     else { payload.targetEmpId = it.empId; payload.applyType = it.applyType; payload.dateRange = it.dateRange; }
 
     try {
       const data = await postJson_(payload);
       if (data && data.status === 'ok') {
         if (data.already) showToast(data.message || 'すでに処理済みでした');
-        else              showToast(label + 'しました（' + it.empName + ' さん）');
+        else              showToast(data.message || (label + 'しました（' + it.empName + ' さん）'));
         // 一覧から除去して再描画。バッジ（部下の未承認を含む）も即座に減らす
         approvalItems.splice(idx, 1);
         renderApprovalItems_();
@@ -2359,6 +2380,9 @@
   }
 
   function doLogout() {
+    currentAuthToken = ''; auditFlowItems = [];
+    if (typeof afHideEditor_ === 'function') afHideEditor_();
+    document.getElementById('audit-flow-section').replaceChildren();
     // 再出勤モードを解除し、トグルを隠す（次のログインで判定し直す）
     exitReworkMode();
     const rwWrap = document.getElementById('rework-toggle-wrap');
@@ -3895,5 +3919,6 @@
   document.getElementById('rework-out-modal').addEventListener('click', function(e) { if (e.target===this) closeModal('rework-out-modal'); });
   document.getElementById('settings-modal').addEventListener('click', function(e) { if (e.target===this) closeModal('settings-modal'); });
 </script>
+<script src="audit-flow.js?v=1"></script>
 </body>
 </html>
