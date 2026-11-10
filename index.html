@@ -744,9 +744,8 @@
   <!-- 規定外休憩 / 時間外移動 トグル -->
   <div class="punch-pending-notice" id="punch-pending-notice" hidden>
     <p id="punch-pending-text"></p>
-    <p>再送すると記録が重複する場合があります。先に受付を確認してください。</p>
-    <button type="button" onclick="confirmPendingPunch_()">受付をもう一度確認</button>
-    <button type="button" onclick="resendPendingPunch_()">同じ打刻を再送</button>
+    <p>再送は自動では行いません。記録済みの場合、再送すると重複することがあります。</p>
+    <div id="punch-pending-list"></div>
   </div>
 
   <div class="toggle-row">
@@ -919,7 +918,7 @@
   <div class="modal">
     <div class="modal-handle"></div>
     <div class="modal-title" id="pm-title">出勤打刻の確認</div>
-    <div class="modal-sub">以下の内容で打刻します</div>
+    <div class="modal-sub" id="pm-sub">以下の内容で打刻します</div>
     <div class="modal-info">
       <div class="modal-row"><span class="modal-row-label">氏名</span><span class="modal-row-value jp" id="pm-name"></span></div>
       <div class="modal-row"><span class="modal-row-label">種別</span><span class="modal-row-value jp" id="pm-type"></span></div>
@@ -1736,6 +1735,7 @@
   let selectedFGType = '規定外休憩';   // 規定外休憩/時間外移動 修正の対象列
   let isRemoteWork = false;
   let pendingAction = null;
+  let pendingRetryPunchId_ = null;
 
   function onRemoteToggle(el) {
     isRemoteWork = el.checked;
@@ -1897,7 +1897,7 @@
     document.getElementById('history-list').innerHTML = '';
   }
 
-  // アプリを前面に戻した時、メモリ保持のまま日付をまたいでいたら状態を更新する
+  // 前面復帰では日付を更新し、フォーム回答の当日記録を非同期で読み直す。
   document.addEventListener('visibilitychange', function() {
     if (document.visibilityState !== 'visible' || !currentUser) return;
     if (resumePendingPunch_()) return;
@@ -1911,8 +1911,9 @@
     // 保存された打刻日が今日でない＝日付をまたいだ → 持ち越し or 初期化を再判定
     if (savedDate && savedDate !== today) {
       loadPunchState();
-      updateReworkAvailability();   // 再出勤（呼び出し）トグルの表示も更新
     }
+    updateReworkAvailability();   // 同日中でも、再出勤の有効期限を判定し直す。
+    fetchTodayPunchStatus({ background: true });
   });
 
   // ======== 打刻状態の保存・復元（0時にリセット） ========
@@ -2017,8 +2018,9 @@
   function enterApp(data) {
     currentUser = { id: String(data.empId), name: data.empName, dept: data.dept, flag: data.flag || 1 };
     punchReceiptApiReady_ = data.punchReceiptVersion === 1;
-    // 通常はログイン応答で確認できる。旧版からの更新時だけ、安全なGETを先に済ませる。
-    if (!punchReceiptApiReady_) ensurePunchReceiptApi_().catch(() => {});
+    punchReceiptLookupReady_ = data.punchReceiptLookupVersion === 1;
+    punchReceiptLookupKnown_ = punchReceiptLookupReady_;
+    // 対応版の照合は保留の手動確認時だけ行い、通常の送信は待たせない。
     document.getElementById('login-error').classList.remove('show');
     document.getElementById('otp-error').classList.remove('show');
     document.getElementById('login-screen').style.display = 'none';
@@ -2454,6 +2456,7 @@
   }
 
   function doLogout() {
+    closePunchProgress_();
     currentAuthToken = ''; auditFlowItems = [];
     if (typeof afHideEditor_ === 'function') afHideEditor_();
     document.getElementById('audit-flow-section').replaceChildren();
@@ -2511,30 +2514,32 @@
 
   function openPunchModal(action) {
     if (punchInFlight_) return;
-    if (getPendingPunch_()) { confirmPendingPunch_(); return; }
     if (checkPresident()) return;
+    const retry = retryPunchForAction_(action);
+    pendingRetryPunchId_ = retry ? retry.id : null;
     // 再出勤モードでは専用の確認モーダルへ振り分ける（通常の打刻とは別処理）
-    if (reworkMode && action === 'checkin')  { openReworkModal();    return; }
-    if (reworkMode && action === 'checkout') { openReworkOutModal(); return; }
-    if (action === 'checkin' && !selectedType) { showToast('種別を選択してください'); return; }
-    const dept = document.getElementById('work-dept').value;
-    const cont = document.getElementById('work-content').value.trim();
+    if (!retry && reworkMode && action === 'checkin')  { openReworkModal();    return; }
+    if (!retry && reworkMode && action === 'checkout') { openReworkOutModal(); return; }
+    if (!retry && action === 'checkin' && !selectedType) { showToast('種別を選択してください'); return; }
+    const dept = retry ? retry.dept : document.getElementById('work-dept').value;
+    const cont = retry ? retry.content : document.getElementById('work-content').value.trim();
 
     // 稼働部門・実施内容は退勤時のみ必須
-    if (action === 'checkout' && !dept) { showToast('稼働部門を選択してください'); return; }
-    if (action === 'checkout' && !cont) { showToast('実施内容を入力してください'); return; }
+    if (!retry && action === 'checkout' && !dept) { showToast('稼働部門を選択してください'); return; }
+    if (!retry && action === 'checkout' && !cont) { showToast('実施内容を入力してください'); return; }
 
     pendingAction = action;
     const now = new Date();
-    let t   = now.toLocaleTimeString('ja-JP');
-    let d   = `${now.getFullYear()}/${String(now.getMonth()+1).padStart(2,'0')}/${String(now.getDate()).padStart(2,'0')}`;
+    let t   = retry ? retry.time : now.toLocaleTimeString('ja-JP');
+    let d   = retry ? retry.date : `${now.getFullYear()}/${String(now.getMonth()+1).padStart(2,'0')}/${String(now.getDate()).padStart(2,'0')}`;
     // 徹夜シフトの退勤は、出勤日の日付＋24時以降の時刻で確認表示する
-    if (action === 'checkout') {
+    if (!retry && action === 'checkout') {
       const ov = overnightCheckout_(now);
       if (ov) { t = ov.time; d = ov.date; }
     }
-    document.getElementById('pm-title').textContent = action === 'checkin' ? '出勤打刻の確認' : '退勤打刻の確認';
-    document.getElementById('pm-type').textContent  = selectedType;
+    document.getElementById('pm-title').textContent = retry ? retry.label + '打刻の再送確認' : action === 'checkin' ? '出勤打刻の確認' : '退勤打刻の確認';
+    document.getElementById('pm-sub').textContent = retry ? '前回と同じ時刻・内容で再送します。記録済みの場合は重複することがあります。' : '以下の内容で打刻します';
+    document.getElementById('pm-type').textContent  = retry ? retry.type : selectedType;
     document.getElementById('pm-time').textContent  = t;
     document.getElementById('pm-date').textContent  = d;
     const dr = document.getElementById('pm-dept-row');
@@ -2542,15 +2547,33 @@
     if (dept) { document.getElementById('pm-dept').textContent = dept; dr.style.display = 'flex'; } else { dr.style.display = 'none'; }
     if (cont) { document.getElementById('pm-cont').textContent = cont; cr.style.display = 'flex'; } else { cr.style.display = 'none'; }
     document.getElementById('pm-confirm').className = 'modal-confirm ' + (action === 'checkin' ? 'green' : 'red');
+    document.getElementById('pm-confirm').textContent = retry ? '再送する' : '打刻する';
     document.getElementById('punch-modal').classList.add('show');
   }
 
   const PUNCH_CONFIRM_TIMEOUT_MS = 60000;
+  const PUNCH_SEND_TIMEOUT_MS = 60000;
   const PUNCH_REQUEST_TIMEOUT_MS = 10000;
+  const PUNCH_STATUS_TIMEOUT_MS = 15000;
+  const PUNCH_STATUS_REFRESH_GAP_MS = 5000;
   let punchInFlight_ = false;
   let punchReceiptApiReady_ = false;
+  let punchReceiptLookupReady_ = false;
+  let punchReceiptLookupKnown_ = false;
   let pendingPunchMemory_ = null;
+  const deferredPunchesMemory_ = Object.create(null);
+  let punchOperation_ = null;
+  let punchStateRevision_ = 0;
   let punchPreviousFocus_ = null;
+  const todayPunchRequests_ = new Map();
+  let todayPunchLastSuccess_ = null;
+
+  function validPendingPunch_(punch) {
+    return !!(currentUser && punch && punch.version === 1 && punch.empId === String(currentUser.id) &&
+      typeof punch.id === 'string' && (punch.action === 'checkin' || punch.action === 'checkout') &&
+      typeof punch.date === 'string' && typeof punch.time === 'string' &&
+      Number.isSafeInteger(punch.afterRow) && punch.afterRow >= 0);
+  }
 
   function getPendingPunch_() {
     if (!currentUser) return null;
@@ -2558,10 +2581,69 @@
     if (!punch || punch.empId !== String(currentUser.id)) {
       try { punch = JSON.parse(lsGet_('pendingPunch_' + currentUser.id) || 'null'); } catch (e) { punch = null; }
     }
-    return punch && punch.version === 1 && punch.empId === String(currentUser.id) &&
-      (punch.action === 'checkin' || punch.action === 'checkout') &&
-      typeof punch.date === 'string' && typeof punch.time === 'string' &&
-      Number.isSafeInteger(punch.afterRow) && punch.afterRow >= 0 ? punch : null;
+    return validPendingPunch_(punch) ? punch : null;
+  }
+
+  function getDeferredPunches_() {
+    if (!currentUser) return [];
+    const key = String(currentUser.id);
+    if (!deferredPunchesMemory_[key]) {
+      try {
+        const saved = JSON.parse(lsGet_('deferredPunches_' + key) || '[]');
+        deferredPunchesMemory_[key] = Array.isArray(saved) ? saved.filter(validPendingPunch_) : [];
+      } catch (error) { deferredPunchesMemory_[key] = []; }
+    }
+    return deferredPunchesMemory_[key].filter(validPendingPunch_);
+  }
+
+  function saveDeferredPunches_(punches) {
+    if (!currentUser) return false;
+    const key = String(currentUser.id);
+    deferredPunchesMemory_[key] = punches;
+    try { localStorage.setItem('deferredPunches_' + key, JSON.stringify(punches)); return true; }
+    catch (error) { return false; }
+  }
+
+  function allPendingPunches_() {
+    const punches = getDeferredPunches_().slice();
+    const active = getPendingPunch_();
+    if (active && !punches.some(punch => punch.id === active.id)) punches.push(active);
+    return punches;
+  }
+
+  function retryPunchForAction_(action) {
+    if (!currentUser) return null;
+    let latest = null, callback = null;
+    try { latest = JSON.parse(lsGet_('confirmedPunchMeta_' + currentUser.id) || 'null'); } catch (error) {}
+    try { callback = loadCallbackShift(); } catch (error) {}
+    const today = punchTodayInJapan_();
+    return allPendingPunches_().filter(punch => punch.retryFromButton && punch.action === action &&
+      (punch.date === today || punch.date === overnightWorkDate ||
+        (punch.kind === 'rework' && callback && callback.workDate === punch.date)) &&
+      (!latest || !(Number(latest.nowMs) > Number(punch.nowMs))) &&
+      (!callback || !(Number(callback.reCheckedInAt) > Number(punch.nowMs))) &&
+      !hasLaterSamePunch_(punch)).sort((a, b) => Number(b.nowMs) - Number(a.nowMs))[0] || null;
+  }
+
+  function restorePunchRetryButtons_() {
+    if (punchInFlight_) return;
+    ['checkin', 'checkout'].forEach(action => {
+      if (retryPunchForAction_(action)) document.getElementById('btn-' + action).disabled = false;
+    });
+  }
+
+  function findPendingPunch_(id) {
+    return id ? allPendingPunches_().find(punch => punch.id === id) : getPendingPunch_() || getDeferredPunches_()[0];
+  }
+
+  function archivePendingPunch_() {
+    const punch = getPendingPunch_();
+    if (!punch) return;
+    const punches = getDeferredPunches_().filter(item => item.id !== punch.id);
+    punches.push(punch);
+    const saved = saveDeferredPunches_(punches);
+    pendingPunchMemory_ = null;
+    if (saved) lsDel_('pendingPunch_' + punch.empId);
   }
 
   function savePendingPunch_(punch) {
@@ -2571,17 +2653,36 @@
   }
 
   function clearPendingPunch_(punch) {
-    pendingPunchMemory_ = null;
-    lsDel_('pendingPunch_' + punch.empId);
+    if (!currentUser || String(currentUser.id) !== punch.empId) return;
+    const active = getPendingPunch_();
+    if (active && active.id === punch.id) {
+      pendingPunchMemory_ = null;
+      lsDel_('pendingPunch_' + punch.empId);
+    }
+    saveDeferredPunches_(getDeferredPunches_().filter(item => item.id !== punch.id));
     renderPendingPunch_();
   }
 
   function renderPendingPunch_() {
     const notice = document.getElementById('punch-pending-notice');
-    const punch = getPendingPunch_();
-    notice.hidden = !punch;
-    if (punch) document.getElementById('punch-pending-text').textContent =
-      punch.date + ' ' + punch.time.slice(0, 5) + ' の' + punch.label + 'は、まだ受付を確認できていません。まず受付をもう一度確認してください。';
+    const punches = allPendingPunches_();
+    notice.hidden = !punches.length;
+    document.getElementById('punch-pending-text').textContent = '受付を確認していない打刻が' + punches.length + '件あります。';
+    const list = document.getElementById('punch-pending-list');
+    list.replaceChildren();
+    punches.forEach(punch => {
+      const row = document.createElement('div');
+      const text = document.createElement('p');
+      text.textContent = punch.date + ' ' + punch.time.slice(0, 5) + ' ' + punch.label;
+      row.appendChild(text);
+      [['受付を確認', confirmPendingPunch_], ['同じ打刻を再送', resendPendingPunch_]].forEach(([label, handler]) => {
+        const button = document.createElement('button');
+        button.type = 'button'; button.textContent = label; button.disabled = punchInFlight_;
+        button.addEventListener('click', () => handler(punch.id));
+        row.appendChild(button);
+      });
+      list.appendChild(row);
+    });
   }
 
   function showPunchProgress_(state, title, detail) {
@@ -2595,20 +2696,41 @@
     const retry = document.getElementById('punch-progress-retry');
     const close = document.getElementById('punch-progress-close');
     retry.hidden = state !== 'error' || !getPendingPunch_();
-    close.hidden = state === 'pending';
+    close.hidden = false;
+    close.textContent = state === 'success' ? '閉じる' : state !== 'pending' ? '画面に戻る' :
+      punchOperation_ && !punchOperation_.submitted ? '送信を中止して戻る' :
+      punchOperation_ && punchOperation_.sending ? '送信中のまま戻る' : '確認を中断して戻る';
     (state === 'pending' ? overlay : retry.hidden ? close : retry).focus();
   }
 
   function closePunchProgress_() {
-    if (punchInFlight_) return;
+    const hadPending = !!getPendingPunch_();
+    const cancelledBeforeSend = punchOperation_ && !punchOperation_.submitted;
+    if (punchOperation_) punchOperation_.controller.abort();
+    punchOperation_ = null;
+    punchInFlight_ = false;
+    punchStateRevision_++;
+    markPunchBusy_(false);
+    archivePendingPunch_();
+    renderPendingPunch_();
+    restorePunchRetryButtons_();
     const overlay = document.getElementById('punch-progress-overlay');
     overlay.className = 'punch-progress-overlay';
     overlay.setAttribute('aria-hidden', 'true');
+    overlay.setAttribute('aria-busy', 'false');
     if (punchPreviousFocus_ && punchPreviousFocus_.isConnected && !punchPreviousFocus_.disabled) punchPreviousFocus_.focus();
+    if (cancelledBeforeSend) showToast('送信前に中断しました。打刻は送信していません。');
+    // 画面を塞がずに当日の回答を読み直し、届いていれば通常表示・再出勤の控えを復元する。
+    if (hadPending && currentUser) fetchTodayPunchStatus();
   }
 
-  async function punchJsonRequest_(url, payload, timeoutMs) {
+  async function punchJsonRequest_(url, payload, timeoutMs, signal) {
     const controller = new AbortController();
+    const abort = () => controller.abort();
+    if (signal) {
+      if (signal.aborted) throw new DOMException('確認を中断しました', 'AbortError');
+      signal.addEventListener('abort', abort, { once: true });
+    }
     const timer = setTimeout(() => controller.abort(), timeoutMs || PUNCH_REQUEST_TIMEOUT_MS);
     try {
       const options = { cache: 'no-store', signal: controller.signal };
@@ -2624,15 +2746,20 @@
         throw error;
       }
       return data;
-    } finally { clearTimeout(timer); }
+    } finally {
+      clearTimeout(timer);
+      if (signal) signal.removeEventListener('abort', abort);
+    }
   }
 
-  async function ensurePunchReceiptApi_() {
+  async function ensurePunchReceiptApi_(timeoutMs, signal) {
     // 旧GASは未知のPOSTを打刻として扱うため、安全なGETで対応版か先に確認する。
-    if (!punchReceiptApiReady_) {
-      const info = await punchJsonRequest_(FORM_GAS_URL + '?action=punchReceiptInfo');
+    if (!punchReceiptApiReady_ || !punchReceiptLookupKnown_) {
+      const info = await punchJsonRequest_(FORM_GAS_URL + '?action=punchReceiptInfo', null, timeoutMs, signal);
       if (info.punchReceiptVersion !== 1) throw new Error('現在、打刻の受付確認を利用できません。管理者に連絡してください。');
       punchReceiptApiReady_ = true;
+      punchReceiptLookupReady_ = info.punchReceiptLookupVersion === 1;
+      punchReceiptLookupKnown_ = true;
     }
   }
 
@@ -2643,12 +2770,20 @@
     return data;
   }
 
-  async function checkPunchReceipt_(punch, timeoutMs) {
-    await ensurePunchReceiptApi_();
-    return punchJsonRequest_(FORM_GAS_URL, {
-      requestType: 'punchReceipt', mode: 'check', empId: punch.empId, afterRow: punch.afterRow,
+  async function checkPunchReceipt_(punch, timeoutMs, signal) {
+    const deadline = Date.now() + (timeoutMs || PUNCH_CONFIRM_TIMEOUT_MS);
+    await ensurePunchReceiptApi_(Math.max(1, deadline - Date.now()), signal);
+    if (!punchReceiptLookupReady_ && punch.receiptLookupOnly) return null;
+    const data = await punchJsonRequest_(FORM_GAS_URL, {
+      requestType: 'punchReceipt', mode: punchReceiptLookupReady_ ? 'lookup' : 'check', empId: punch.empId, afterRow: punch.afterRow,
       date: punch.date, action: punch.action, time: punch.time.split(':').slice(0, 2).join(':')
-    }, timeoutMs);
+    }, Math.max(1, deadline - Date.now()), signal);
+    if (typeof data.found !== 'boolean') throw new Error('確認先から正しい応答を取得できませんでした。');
+    if (data.found && (!Number.isSafeInteger(data.receiptRow) ||
+      (punchReceiptLookupReady_ ? data.receiptRow < 2 || String(data.empId) !== punch.empId ||
+        data.date !== punch.date || data.action !== punch.action || punchTimeKey_(data.time) !== punchTimeKey_(punch.time)
+        : data.receiptRow <= punch.afterRow))) throw new Error('打刻の一致を確認できませんでした。');
+    return data;
   }
 
   function punchTodayInJapan_() {
@@ -2662,55 +2797,107 @@
     return match ? Number(match[1]) + ':' + match[2] : '';
   }
 
-  async function checkTodayPunchReceipt_(punch, timeoutMs) {
+  async function checkTodayPunchReceipt_(punch, timeoutMs, signal) {
     // 同じ社員・勤務日・区分・時刻の回答が実在すれば受付済み。
     // 旧APIは当日限定のため、過去日の勤務や通信中の日付またぎには使わない。
     if (!currentUser || String(currentUser.id) !== punch.empId || !currentAuthToken || punch.date !== punchTodayInJapan_()) return null;
     const data = await punchJsonRequest_(FORM_GAS_URL + '?empId=' + encodeURIComponent(punch.empId) +
-      '&_receipt=' + encodeURIComponent(punch.date + '_' + Date.now()), null, timeoutMs);
+      '&_receipt=' + encodeURIComponent(punch.date + '_' + Date.now()), null, timeoutMs, signal);
     if (!currentUser || String(currentUser.id) !== punch.empId || punch.date !== punchTodayInJapan_()) return null;
     if (data.date && data.date !== punch.date) return null;
     if (data.empId && String(data.empId) !== punch.empId) return null;
     const value = punch.action === 'checkin' ? data.checkin : punch.action === 'checkout' ? data.checkout : null;
     const expected = punchTimeKey_(punch.time);
     return expected && punchTimeKey_(value) === expected
-      ? { status: 'ok', found: true, receiptSource: 'form-status' } : null;
+      ? { status: 'ok', found: true, receiptSource: 'form-status' }
+      : { status: 'ok', found: false, receiptSource: 'form-status', latestTime: punchTimeKey_(value) };
   }
 
-  async function waitForPunchReceipt_(punch) {
-    const deadline = Date.now() + PUNCH_CONFIRM_TIMEOUT_MS;
-    let answered = false, lastError = null;
-    while (Date.now() < deadline) {
-      try {
-        // 確認全体の時間だけを上限にする。遅いGAS応答を10秒ごとに中断・再実行しない。
-        const data = await checkPunchReceipt_(punch, Math.max(1, deadline - Date.now()));
-        if (typeof data.found !== 'boolean') throw new Error('確認先から正しい応答を取得できませんでした。');
-        answered = true;
-        if (data.found === true && Number.isSafeInteger(data.receiptRow) && data.receiptRow > punch.afterRow) return data;
-        if (data.found === false && Date.now() < deadline) {
-          const existing = await checkTodayPunchReceipt_(punch, Math.max(1, deadline - Date.now()));
-          if (existing) return existing;
-        }
-      } catch (error) {
-        if (['invalid', 'input', 'baseline_changed', 'receipt_range', 'unavailable'].includes(error.code)) throw error;
-        lastError = error;
+  function punchPause_(delayMs, signal) {
+    return new Promise(resolve => {
+      const done = () => { clearTimeout(timer); if (signal) signal.removeEventListener('abort', done); resolve(); };
+      const timer = setTimeout(done, delayMs);
+      if (signal) {
+        if (signal.aborted) done();
+        else signal.addEventListener('abort', done, { once: true });
       }
-      if (Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, Math.min(1200, deadline - Date.now())));
+    });
+  }
+
+  async function findPunchReceipt_(punch, timeoutMs, signal, poll) {
+    // 一方の確認先が遅くても、もう一方の実在確認が取れれば直ちに完了する。
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    if (signal) {
+      if (signal.aborted) throw new DOMException('確認を中断しました', 'AbortError');
+      signal.addEventListener('abort', abort, { once: true });
     }
-    if (!answered && lastError) throw new Error('受付確認の通信が完了していません。打刻を再送せず、受付をもう一度確認してください。');
+    const deadline = Date.now() + timeoutMs;
+    const read = async checker => {
+      let lastError = null, answered = false, lastResult = null;
+      do {
+        if (controller.signal.aborted) throw new DOMException('確認を中断しました', 'AbortError');
+        try {
+          const data = await checker(punch, Math.max(1, deadline - Date.now()), controller.signal);
+          if (controller.signal.aborted) throw new DOMException('確認を中断しました', 'AbortError');
+          if (data && typeof data.found === 'boolean') {
+            answered = true; lastResult = data;
+            if (data.found) return data;
+          }
+          if (!poll) return data;
+        } catch (error) {
+          if (controller.signal.aborted || !poll || ['invalid', 'input', 'baseline_changed', 'receipt_range', 'unavailable'].includes(error.code)) throw error;
+          lastError = error;
+        }
+        if (Date.now() < deadline) await punchPause_(Math.min(1200, deadline - Date.now()), controller.signal);
+      } while (Date.now() < deadline);
+      if (!answered && lastError) throw lastError;
+      return lastResult;
+    };
+    // 各確認先を独立に再照会する。遅いlookupが、先に返ったGETの再確認を止めない。
+    const reads = [read(checkTodayPunchReceipt_), read(checkPunchReceipt_)];
+    try {
+      return await new Promise((resolve, reject) => {
+        let remaining = reads.length, lastError = null, negative = null;
+        reads.forEach(read => Promise.resolve(read).then(data => {
+          if (data && data.found === true) { resolve(data); return; }
+          if (data && data.found === false && (!negative || data.receiptSource === 'form-status')) negative = data;
+        }, error => { lastError = error; }).finally(() => {
+          if (--remaining === 0) {
+            if (signal && signal.aborted) reject(new DOMException('確認を中断しました', 'AbortError'));
+            else if (!negative && lastError) reject(lastError);
+            else resolve(negative);
+          }
+        }));
+      });
+    } finally {
+      controller.abort();
+      if (signal) signal.removeEventListener('abort', abort);
+    }
+  }
+
+  async function waitForPunchReceipt_(punch, signal, operationDeadline) {
+    const deadline = operationDeadline || Date.now() + PUNCH_CONFIRM_TIMEOUT_MS;
+    try {
+      const data = await findPunchReceipt_(punch, Math.max(1, deadline - Date.now()), signal, true);
+      if (signal && signal.aborted) throw new DOMException('確認を中断しました', 'AbortError');
+      if (data && data.found && Date.now() <= deadline) return data;
+    } catch (error) {
+      if (signal && signal.aborted) throw error;
+      throw new Error(error.code === 'invalid' ? '再ログインしてから受付を確認してください。' :
+        '受付確認の通信が完了していません。打刻を再送せず、受付をもう一度確認してください。');
+    }
     throw new Error('まだ受付を確認できていません。もう一度確認してください。');
   }
 
   function punchLocation_() {
     return new Promise(resolve => {
-      let settled = false;
-      const finish = value => { if (!settled) { settled = true; clearTimeout(timer); resolve(value); } };
-      const timer = setTimeout(() => finish({ lat: '', lng: '' }), 5500);
+      // ブラウザの許可・拒否への回答を待つ。timeoutは位置取得にのみ適用される。
       try {
-        navigator.geolocation.getCurrentPosition(pos => finish({
+        navigator.geolocation.getCurrentPosition(pos => resolve({
           lat: pos.coords.latitude.toFixed(6), lng: pos.coords.longitude.toFixed(6)
-        }), () => finish({ lat: '', lng: '' }), { timeout: 5000, maximumAge: 30000 });
-      } catch (e) { finish({ lat: '', lng: '' }); }
+        }), () => resolve({ lat: '', lng: '' }), { timeout: 5000 });
+      } catch (e) { resolve({ lat: '', lng: '' }); }
     });
   }
 
@@ -2724,87 +2911,187 @@
     return fetch(FORM_URL, { method: 'POST', mode: 'no-cors', body: formData, keepalive: size < 48000 });
   }
 
+  function waitForPunchSubmission_(punch, signal) {
+    // no-corsの応答本文・HTTP成否は読めない。通信が戻った時点を送信完了とする。
+    // タイムアウトや画面中断では、送信済みのリクエスト自体を中止・再送しない。
+    return new Promise((resolve, reject) => {
+      let settled = false, timer = null;
+      const finish = (error, response) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (signal) signal.removeEventListener('abort', abort);
+        if (error) reject(error); else resolve(response);
+      };
+      const abort = () => finish(new DOMException('送信結果の待機を中断しました', 'AbortError'));
+      if (signal) {
+        if (signal.aborted) { abort(); return; }
+        signal.addEventListener('abort', abort, { once: true });
+      }
+      timer = setTimeout(() => finish(new Error('送信の通信が完了していません。再送前に受付を確認してください。')), PUNCH_SEND_TIMEOUT_MS);
+      try { Promise.resolve(postPunchForm_(punch)).then(response => finish(null, response), error => finish(error)); }
+      catch (error) { finish(error); }
+    });
+  }
+
   function markPunchBusy_(busy) {
     ['btn-checkin', 'btn-checkout'].forEach(id => document.getElementById(id).setAttribute('aria-busy', busy ? 'true' : 'false'));
   }
 
-  async function runPunch_(punch, modalId, resend) {
-    if (punchInFlight_ || !currentUser) return;
-    if (!resend && getPendingPunch_()) return confirmPendingPunch_();
+  function beginPunchOperation_(punch, submitted) {
+    archivePendingPunch_();
+    const operation = { empId: punch.empId, punchId: punch.id, deadline: Date.now() + PUNCH_CONFIRM_TIMEOUT_MS,
+      submitted: !!submitted, controller: new AbortController() };
+    punchOperation_ = operation;
+    punchStateRevision_++;
     punchInFlight_ = true;
     markPunchBusy_(true);
+    renderPendingPunch_();
+    return operation;
+  }
+
+  function isCurrentPunchOperation_(operation) {
+    return punchOperation_ === operation && !operation.controller.signal.aborted &&
+      currentUser && String(currentUser.id) === operation.empId;
+  }
+
+  function endPunchOperation_(operation) {
+    if (punchOperation_ !== operation) return;
+    punchOperation_ = null;
+    punchInFlight_ = false;
+    markPunchBusy_(false);
+    renderPendingPunch_();
+    restorePunchRetryButtons_();
+  }
+
+  function hasLaterSamePunch_(punch, observed) {
+    const minutes = value => { const key = punchTimeKey_(value); if (!key) return -1;
+      const pair = key.split(':').map(Number); return pair[0] * 60 + pair[1]; };
+    const expected = minutes(punch.time);
+    let meta = null, saved = null;
+    try { meta = JSON.parse(lsGet_('confirmedPunchMeta_' + punch.empId) || 'null'); } catch (error) {}
+    try { saved = JSON.parse(lsGet_('punchState_' + punch.empId) || 'null'); } catch (error) {}
+    if (meta && meta.date === punch.date && meta.action === punch.action && minutes(meta.time) > expected) return true;
+    if (saved && String(saved.date).replace(/-/g, '/') === punch.date && minutes(saved[punch.action]) > expected) return true;
+    if ((overnightWorkDate || punchTodayInJapan_()) === punch.date &&
+      minutes(document.getElementById(punch.action === 'checkin' ? 'status-checkin' : 'status-checkout').textContent) > expected) return true;
+    if (observed && minutes(observed.latestTime) > expected) return true;
+    return allPendingPunches_().some(item => item.id !== punch.id && item.date === punch.date &&
+      item.action === punch.action && minutes(item.time) > expected);
+  }
+
+  async function runPunch_(punch, modalId, resend) {
+    if (punchInFlight_ || !currentUser) return;
+    const same = !resend && allPendingPunches_().find(item => item.date === punch.date &&
+      item.action === punch.action && punchTimeKey_(item.time) === punchTimeKey_(punch.time));
+    if (same) {
+      if (modalId) closeModal(modalId);
+      archivePendingPunch_();
+      savePendingPunch_(same);
+      showPunchProgress_('error', '同じ時刻の送信状況が不明です', '内容を保留欄に残しています。\n受付を確認してから再送してください。');
+      return;
+    }
+    const operation = beginPunchOperation_(punch, resend);
     if (modalId) closeModal(modalId);
-    showPunchProgress_('pending', punch.label + 'を送信中', '完了が表示されるまで\nこのままお待ちください。');
+    showPunchProgress_('pending', punch.label + 'を送信準備中', '完了が表示されるまで\nこのままお待ちください。');
     let submitted = !!resend;
     try {
       if (!resend) {
-        const results = await Promise.all([preparePunchReceipt_(punch.empId), punchLocation_()]);
-        punch.afterRow = results[0].lastRow;
-        punch.lat = results[1].lat; punch.lng = results[1].lng;
+        const location = await punchLocation_();
+        if (!isCurrentPunchOperation_(operation)) return;
+        punch.afterRow = 0;
+        punch.receiptLookupOnly = true;
+        punch.lat = location.lat; punch.lng = location.lng;
         punch.version = 1;
         savePendingPunch_(punch);
       } else {
-        // 明示的な再送でも、先に元の回答を確認し、届いていた場合は再POSTしない。
-        const existing = await checkPunchReceipt_(punch);
-        if (existing.found === true && Number.isSafeInteger(existing.receiptRow) && existing.receiptRow > punch.afterRow) {
-          finishPunchReceipt_(punch);
-          return;
+        savePendingPunch_(punch);
+        if (punch.retryFromButton) {
+          if (!retryPunchForAction_(punch.action) || retryPunchForAction_(punch.action).id !== punch.id) {
+            throw new Error('新しい打刻があるか対象日が変わったため、以前の内容は再送しません。');
+          }
+        } else {
+          // 旧版から残る保留は、従来どおり元の回答を先に確認する。
+          const existing = await findPunchReceipt_(punch, Math.max(1, operation.deadline - Date.now()), operation.controller.signal);
+          if (!isCurrentPunchOperation_(operation)) return;
+          if (existing && existing.found === true) { finishPunchReceipt_(punch); return; }
+          if (hasLaterSamePunch_(punch, existing)) throw new Error('同じ区分の新しい打刻があるため、古い打刻は再送しません。受付の確認、または管理者への確認をお願いします。');
+          if (!existing || (existing.scanLimited && punch.date !== punchTodayInJapan_())) {
+            throw new Error('元の回答の有無を確認できないため、再送しません。管理者に確認してください。');
+          }
         }
       }
+      if (!isCurrentPunchOperation_(operation)) return;
       submitted = true;
-      postPunchForm_(punch).catch(() => {}); // 通信の成否では完了にしない。回答の到達確認を続ける。
-      showPunchProgress_('pending', punch.label + 'の受付を確認中', punch.time.slice(0, 5) + '\nこのままお待ちください。');
-      await waitForPunchReceipt_(punch);
-      finishPunchReceipt_(punch);
+      operation.submitted = true;
+      operation.sending = true;
+      operation.deadline = Date.now() + PUNCH_SEND_TIMEOUT_MS;
+      showPunchProgress_('pending', punch.label + 'を送信中', punch.time.slice(0, 5) + '\n完了が表示されるまでお待ちください。');
+      await waitForPunchSubmission_(punch, operation.controller.signal);
+      if (!isCurrentPunchOperation_(operation)) return;
+      finishPunchReceipt_(punch, 'submission');
     } catch (error) {
-      showPunchProgress_('error', submitted ? '受付を確認できません' : '送信できませんでした',
-        submitted ? (error.message || 'もう一度確認してください。') : '打刻は送信していません。\n' + (error.message || '時間をおいてお試しください。'));
+      if (!isCurrentPunchOperation_(operation)) return;
+      if (operation.sending) { punch.retryFromButton = true; savePendingPunch_(punch); }
+      showPunchProgress_('error', submitted ? '送信結果を確認できません' : '送信できませんでした',
+        submitted ? (operation.sending ? '少し時間を空けて、キンジロー君を開き直してください。\n' +
+          punch.time.slice(0, 5) + 'の' + punch.label + '時刻が表示されていなければ、もう一度' + punch.label + 'ボタンを押してください。' :
+          error.message || '再送前に受付を確認してください。') : '打刻は送信していません。\n' + (error.message || '時間をおいてお試しください。'));
     } finally {
-      punchInFlight_ = false;
-      markPunchBusy_(false);
-      renderPendingPunch_();
+      endPunchOperation_(operation);
     }
   }
 
-  function finishPunchReceipt_(punch) {
+  function finishPunchReceipt_(punch, source) {
     if (!currentUser || String(currentUser.id) !== punch.empId) throw new Error('打刻した社員でログインし直して、受付を確認してください。');
+    punch.completionMode = source === 'submission' ? 'submission' : 'receipt';
     applyConfirmedPunch_(punch);
     clearPendingPunch_(punch);
-    showPunchProgress_('success', punch.label + '打刻 完了', punch.date + ' ' + punch.time.slice(0, 5) + '\nフォームへの記録を確認しました。');
+    showPunchProgress_('success', punch.label + '打刻 完了', punch.date + ' ' + punch.time.slice(0, 5) +
+      (source === 'submission' ? '\nGoogleフォームへ送信しました。' : '\nフォームへの記録を確認しました。'));
   }
 
-  async function confirmPendingPunch_() {
+  async function confirmPendingPunch_(id) {
     if (punchInFlight_) return;
-    const punch = getPendingPunch_();
+    const punch = findPendingPunch_(id);
     if (!punch) return;
-    punchInFlight_ = true;
-    markPunchBusy_(true);
+    const operation = beginPunchOperation_(punch, true);
+    savePendingPunch_(punch);
     showPunchProgress_('pending', punch.label + 'の受付を確認中', punch.time.slice(0, 5) + '\nこのままお待ちください。');
     try {
-      await waitForPunchReceipt_(punch);
+      await waitForPunchReceipt_(punch, operation.controller.signal, operation.deadline);
+      if (!isCurrentPunchOperation_(operation)) return;
       finishPunchReceipt_(punch);
     } catch (error) {
+      if (!isCurrentPunchOperation_(operation)) return;
       showPunchProgress_('error', '受付を確認できません', error.message || 'もう一度確認してください。');
-    } finally { punchInFlight_ = false; markPunchBusy_(false); renderPendingPunch_(); }
+    } finally { endPunchOperation_(operation); }
   }
 
-  function resendPendingPunch_() {
-    const punch = getPendingPunch_();
+  function resendPendingPunch_(id) {
+    const punch = findPendingPunch_(id);
     if (punch && !punchInFlight_) return runPunch_(punch, null, true);
   }
 
   function resumePendingPunch_() {
+    // 起動・復帰・回線復旧では案内だけを復元する。再確認も再送も本人の操作時だけ。
+    if (!punchInFlight_) archivePendingPunch_();
     renderPendingPunch_();
-    if (!getPendingPunch_()) return false;
-    if (!punchInFlight_) confirmPendingPunch_();
-    return true;
+    restorePunchRetryButtons_();
+    return false;
   }
 
   async function doPunch() {
     if (punchInFlight_ || !currentUser) return;
-    if (getPendingPunch_()) return confirmPendingPunch_();
     const action = pendingAction;
     if (action !== 'checkin' && action !== 'checkout') return;
+    if (pendingRetryPunchId_) {
+      const retry = retryPunchForAction_(action);
+      const requestedId = pendingRetryPunchId_;
+      pendingRetryPunchId_ = null;
+      if (!retry || retry.id !== requestedId) { closeModal('punch-modal'); showToast('再送対象が変わりました。内容を確認してください'); return; }
+      return runPunch_(retry, 'punch-modal', true);
+    }
     if (!selectedType) { showToast('種別を選択してください'); return; }
     const dept = document.getElementById('work-dept').value;
     const content = document.getElementById('work-content').value.trim();
@@ -2845,9 +3132,33 @@
     return runPunch_(punch, 'punch-modal');
   }
 
+  function mayApplyConfirmedPunch_(punch) {
+    // 過去の保留を後から確認しても、現在の打刻・再出勤中の控えを巻き戻さない。
+    let latest = null, saved = null;
+    try { latest = JSON.parse(lsGet_('confirmedPunchMeta_' + punch.empId) || 'null'); } catch (error) {}
+    try { saved = JSON.parse(lsGet_('punchState_' + punch.empId) || 'null'); } catch (error) {}
+    if (latest && Number(latest.nowMs) > Number(punch.nowMs)) return false;
+    if (saved && typeof saved.date === 'string' && saved.date.replace(/-/g, '/') > punch.date) return false;
+    const rec = loadCallbackShift();
+    if (rec && (rec.checkoutMs > punch.nowMs || (rec.reCheckedIn &&
+      (Number(rec.reCheckedInAt) >= punch.nowMs ||
+       (punch.kind !== 'rework' && Math.floor(rec.checkoutMs / 60000) >= Math.floor(punch.nowMs / 60000)))))) return false;
+    const uiDate = overnightWorkDate || punchTodayInJapan_();
+    if (punch.date === uiDate) {
+      const minutes = value => { const key = punchTimeKey_(value); if (!key) return -1;
+        const pair = key.split(':').map(Number); return pair[0] * 60 + pair[1]; };
+      const incoming = minutes(punch.time);
+      const checkin = minutes(document.getElementById('status-checkin').textContent);
+      const checkout = minutes(document.getElementById('status-checkout').textContent);
+      if (punch.action === 'checkin' ? checkin > incoming || checkout >= incoming : checkout > incoming || checkin > incoming) return false;
+    }
+    return true;
+  }
+
   function applyConfirmedPunch_(punch) {
     if (!currentUser || String(currentUser.id) !== punch.empId) return;
     if (lsGet_('confirmedPunch_' + punch.empId) === punch.id) return;
+    if (!mayApplyConfirmedPunch_(punch)) return;
     const isCheckin = punch.action === 'checkin';
     selectedType = punch.type;
     document.getElementById('type-select').value = punch.type;
@@ -2868,7 +3179,7 @@
     if (isCheckin) document.getElementById('btn-checkout').disabled = false;
     addHistory(punch.kind === 'rework' ? '退勤（再出勤）' : punch.label,
       punch.kind === 'rework' ? '' : punch.type, punch.time, isCheckin ? '#3dba7a' : '#e05a5a');
-    // 受付自体は確認済み。端末保存や補助表示の失敗で未送信扱いへ戻さない。
+    // 端末保存や補助表示の失敗で、送信後に送信エラーへ戻さない。
     const local = effect => { try { effect(); } catch (error) { console.warn('打刻後の端末更新:', error); } };
     if (isCheckin) {
       local(() => { clearCallbackShift(); updateReworkAvailability(); });
@@ -2897,6 +3208,8 @@
       if (punch.date !== today) local(() => loadPunchState());
     }
     lsSet_('confirmedPunch_' + punch.empId, punch.id);
+    lsSet_('confirmedPunchMeta_' + punch.empId, JSON.stringify({ id: punch.id, nowMs: punch.nowMs,
+      date: punch.date, action: punch.action, time: punch.time, completionMode: punch.completionMode }));
     if ((isCheckin && punch.remote) || (!isCheckin && punch.region)) {
       const note = isCheckin
         ? { requestType: 'remoteWork', empId: punch.empId, date: punch.date }
@@ -3616,7 +3929,10 @@
     }
   }
 
-  function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+  function closeModal(id) {
+    document.getElementById(id).classList.remove('show');
+    if (id === 'punch-modal') pendingRetryPunchId_ = null;
+  }
 
   function showToast(msg) {
     const t = document.getElementById('toast');
@@ -3755,7 +4071,6 @@
   // 再出勤の「出勤」確認モーダルを開く
   function openReworkModal() {
     if (punchInFlight_) return;
-    if (getPendingPunch_()) { confirmPendingPunch_(); return; }
     const rec = loadCallbackShift();
     if (!rec) { showToast('再出勤の記録が見つかりません'); exitReworkMode(); updateReworkAvailability(); return; }
     const now    = new Date();
@@ -3773,7 +4088,6 @@
   // 再出勤の「出勤」確定：空き時間を規定外休憩へ加算（サーバーには送らない）
   function doReworkCheckin() {
     if (punchInFlight_) return;
-    if (getPendingPunch_()) { confirmPendingPunch_(); return; }
     const rec = loadCallbackShift();
     if (!rec) { closeModal('rework-modal'); showToast('再出勤の記録が見つかりません'); exitReworkMode(); updateReworkAvailability(); return; }
     const now    = new Date();
@@ -3784,6 +4098,7 @@
     // 控えを更新：休憩合計を確定し、「出勤済み」にする（再読み込みしても二重加算しない）
     rec.breakMins   = total;
     rec.reCheckedIn = true;
+    rec.reCheckedInAt = now.getTime();
     localStorage.setItem(CALLBACK_KEY(currentUser.id), JSON.stringify(rec));
 
     document.getElementById('btn-checkin').disabled  = true;
@@ -3800,7 +4115,6 @@
   // 再出勤の「退勤」確認モーダルを開く
   function openReworkOutModal() {
     if (punchInFlight_) return;
-    if (getPendingPunch_()) { confirmPendingPunch_(); return; }
     const rec = loadCallbackShift();
     if (!rec) { showToast('再出勤の記録が見つかりません'); exitReworkMode(); updateReworkAvailability(); return; }
     const md = rec.workDate.split('/');
@@ -3837,7 +4151,6 @@
   // 再出勤の「退勤」確定：勤務日の行に、24時超え表記で退勤を書き込む
   async function doReworkCheckout() {
     if (punchInFlight_ || !currentUser) return;
-    if (getPendingPunch_()) return confirmPendingPunch_();
     const rec = loadCallbackShift();
     if (!rec) { closeModal('rework-out-modal'); showToast('再出勤の記録が見つかりません'); exitReworkMode(); updateReworkAvailability(); return; }
     const now = new Date();
@@ -3948,14 +4261,75 @@
   }
 
   // ======== サーバーから当日打刻状況を取得 ========
-  async function fetchTodayPunchStatus() {
-    if (!currentUser || punchInFlight_ || getPendingPunch_()) return;
+  async function fetchTodayPunchStatus(options) {
+    if (!currentUser) return;
     const empId = String(currentUser.id);
+    const date = punchTodayInJapan_();
+    const revision = punchStateRevision_;
+    // 当日専用のGETで、前日の徹夜勤務を今日の記録へ置き換えない。
+    if (overnightWorkDate && overnightWorkDate !== date) return;
+    if (punchInFlight_ && (!punchOperation_ || !punchOperation_.submitted)) return;
+    const key = JSON.stringify([empId, date, revision]);
+    if (todayPunchRequests_.has(key)) return todayPunchRequests_.get(key);
+    const elapsed = todayPunchLastSuccess_ ? Date.now() - todayPunchLastSuccess_.at : -1;
+    if (options && options.background && !punchInFlight_ && !allPendingPunches_().length &&
+      todayPunchLastSuccess_ && todayPunchLastSuccess_.key === key &&
+      elapsed >= 0 && elapsed < PUNCH_STATUS_REFRESH_GAP_MS) return;
+    const request = readTodayPunchStatus_(empId, date, revision);
+    todayPunchRequests_.set(key, request);
     try {
-      const res  = await fetch(FORM_GAS_URL + '?empId=' + encodeURIComponent(currentUser.id));
-      const data = await res.json();
-      if (!currentUser || String(currentUser.id) !== empId || punchInFlight_ || getPendingPunch_()) return;
-      if (data.status !== 'ok') return;
+      const applied = await request;
+      if (applied) todayPunchLastSuccess_ = { key, at: Date.now() };
+    } finally {
+      if (todayPunchRequests_.get(key) === request) todayPunchRequests_.delete(key);
+    }
+  }
+
+  async function readTodayPunchStatus_(empId, date, revision) {
+    try {
+      const data = await punchJsonRequest_(FORM_GAS_URL + '?empId=' + encodeURIComponent(empId), null, PUNCH_STATUS_TIMEOUT_MS);
+      if (!currentUser || String(currentUser.id) !== empId || revision !== punchStateRevision_ || date !== punchTodayInJapan_()) return false;
+      if (overnightWorkDate && overnightWorkDate !== date) return false;
+      if ((data.empId && String(data.empId) !== empId) || (data.date && data.date !== date)) return false;
+      if (punchInFlight_) {
+        // 送信中の復帰でも、同じ打刻の実在を確認できた場合だけ先に確定できる。
+        const operation = punchOperation_;
+        const punch = getPendingPunch_();
+        const recorded = punch && (punch.action === 'checkin' ? data.checkin : data.checkout);
+        if (operation && operation.submitted && punch && punch.id === operation.punchId &&
+          punch.date === date && punchTimeKey_(punch.time) && punchTimeKey_(punch.time) === punchTimeKey_(recorded)) {
+          operation.controller.abort();
+          endPunchOperation_(operation);
+          finishPunchReceipt_(punch);
+          return true;
+        }
+        return false;
+      }
+      allPendingPunches_().forEach(punch => {
+        const recorded = punch.action === 'checkin' ? data.checkin : data.checkout;
+        if (punch.date === date && punchTimeKey_(punch.time) && punchTimeKey_(punch.time) === punchTimeKey_(recorded)) {
+          applyConfirmedPunch_(punch);
+          clearPendingPunch_(punch);
+        }
+      });
+      // 送信直後の反映待ちを、未打刻や古い時刻として端末へ戻さない。
+      let latest = null;
+      try { latest = JSON.parse(lsGet_('confirmedPunchMeta_' + empId) || 'null'); } catch (error) {}
+      if (latest && latest.completionMode === 'submission' && latest.date === date) {
+        const expected = punchTimeKey_(latest.time);
+        const recorded = punchTimeKey_(latest.action === 'checkin' ? data.checkin : data.checkout);
+        if (expected && (!recorded || fgTimeToMinutes_(recorded) < fgTimeToMinutes_(expected))) {
+          updateReworkAvailability();
+          return true;
+        }
+        if (expected && recorded) {
+          latest.completionMode = 'receipt';
+          lsSet_('confirmedPunchMeta_' + empId, JSON.stringify(latest));
+        }
+      }
+      // 再出勤トグルON〜再出勤中は、以前の退勤GETでボタンを無効にしない。
+      const callback = loadCallbackShift();
+      if (callback && (callback.reCheckedIn || reworkMode)) { updateReworkAvailability(); return true; }
 
       // 出勤データがあれば反映
       if (data.checkin) {
@@ -3974,10 +4348,13 @@
       }
 
       // ローカルストレージにも保存
+      restorePunchRetryButtons_();
       savePunchState();
+      return true;
 
     } catch(e) {
       console.log('打刻状況取得エラー:', e);
+      return false;
     }
   }
 
