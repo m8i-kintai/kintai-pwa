@@ -4,7 +4,7 @@
 //      → 端末記憶が定着し、2回目以降はメール/コード無しで自動ログインできる
 //  (2) アプリ枠(HTML/ロゴ等)をキャッシュしてオフライン耐性・起動高速化
 // 重要: GAS等クロスオリジンの通信(ログイン・打刻・申請のPOST)は絶対に横取りしない
-const CACHE  = 'kinjiro-v9';
+const CACHE  = 'kinjiro-v14';
 const ASSETS = ['./', './index.html', './manifest.json', './audit-flow.js?v=1', './logo.png', './imnz6098.png', './guide.html'];
 
 // ===== Firebase Cloud Messaging（Web Push・バックグラウンド受信） =====
