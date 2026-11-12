@@ -585,6 +585,44 @@
     transition: border-color 0.2s, box-shadow 0.2s; color-scheme: dark;
   }
   .field-input-time:focus { border-color: var(--purple); box-shadow: 0 0 0 3px var(--purple-glow); }
+  /* drive-diary-css:start */
+  .drive-diary-entry {
+    display: flex; align-items: center; gap: 16px; width: 100%;
+    min-height: 102px; padding: 20px; text-align: left; text-decoration: none;
+    font: inherit; color: var(--text); cursor: pointer;
+    background: linear-gradient(135deg, rgba(91,110,245,0.16), rgba(159,122,240,0.07) 62%, rgba(61,186,122,0.06)), var(--surface);
+    border: 1px solid rgba(123,142,247,0.36); border-radius: var(--radius);
+    box-shadow: 0 8px 28px rgba(0,0,0,0.12);
+    transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .drive-diary-entry:hover {
+    border-color: var(--accent2);
+    box-shadow: 0 10px 30px var(--accent-glow);
+    transform: translateY(-1px);
+  }
+  .drive-diary-entry:active { transform: translateY(0); }
+  .drive-diary-entry:focus-visible { outline: 3px solid var(--accent2); outline-offset: 4px; }
+  .drive-diary-icon {
+    display: grid; place-items: center; flex: 0 0 52px; width: 52px; height: 52px;
+    border-radius: 15px; color: var(--accent2); background: rgba(91,110,245,0.15);
+    border: 1px solid rgba(123,142,247,0.22);
+  }
+  .drive-diary-icon svg { width: 31px; height: 31px; }
+  .drive-diary-copy { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  .drive-diary-title { font-size: 17px; font-weight: 700; line-height: 1.4; }
+  .drive-diary-description { font-size: 12px; font-weight: 400; line-height: 1.6; color: var(--muted); }
+  .drive-diary-arrow { flex: 0 0 22px; width: 22px; height: 22px; margin-left: auto; color: var(--accent2); }
+  body.light .drive-diary-entry {
+    background: linear-gradient(135deg, rgba(91,110,245,0.09), rgba(159,122,240,0.04) 62%, rgba(61,186,122,0.04)), var(--surface);
+    border-color: rgba(91,110,245,0.28); box-shadow: 0 6px 20px rgba(30,33,48,0.06);
+  }
+  body.light .drive-diary-icon { color: var(--accent); background: rgba(91,110,245,0.1); }
+  @media (prefers-reduced-motion: reduce) {
+    .drive-diary-entry { transition: none; }
+    .drive-diary-entry:hover { transform: none; }
+  }
+  /* drive-diary-css:end */
 </style>
 </head>
 <body>
@@ -847,6 +885,22 @@
     </div>
   </div>
 
+  <!-- drive-diary-entry:start -->
+  <button class="drive-diary-entry" type="button" onclick="openDrivingDiary()" aria-label="運転日報を開く" aria-describedby="drive-diary-description">
+    <span class="drive-diary-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+        <path d="m5 10 1.5-4A2 2 0 0 1 8.4 4.7h7.2A2 2 0 0 1 17.5 6L19 10"/>
+        <rect x="3" y="10" width="18" height="8" rx="2.5"/>
+        <path d="M5 18v2m14-2v2M7 14h.01M17 14h.01M10 15h4"/>
+      </svg>
+    </span>
+    <span class="drive-diary-copy">
+      <span class="drive-diary-title">運転日報</span>
+      <span class="drive-diary-description" id="drive-diary-description">車両点検・出発・帰着の記録</span>
+    </span>
+    <svg class="drive-diary-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 12h14m-5-5 5 5-5 5"/></svg>
+  </button>
+  <!-- drive-diary-entry:end -->
   <!-- 履歴（非表示） -->
   <div id="history-list" style="display:none"></div>
 
@@ -1998,6 +2052,44 @@
 
   // ======== メールOTPログイン（案B：パスワードレス＋端末記憶） ========
   let currentAuthToken = '';
+  // drive-diary-script:start
+  // 公開後の運転日報アプリURLを設定します。認証情報はここへ保存しません。
+  const DRIVE_DIARY_APP_URL = 'https://m8i-kintai.github.io/driving-diary/';
+
+  function openDrivingDiary() {
+    if (!DRIVE_DIARY_APP_URL) {
+      showToast('運転日報の公開準備中です');
+      return;
+    }
+    if (!currentUser || currentUser.id == null || !String(currentUser.id).trim() || !currentAuthToken) {
+      showToast('キンジロウに再ログインしてから開いてください');
+      return;
+    }
+
+    let appUrl;
+    try {
+      appUrl = new URL(DRIVE_DIARY_APP_URL);
+    } catch (error) {
+      showToast('運転日報の公開URLを確認してください');
+      return;
+    }
+    const localHosts = ['localhost', '127.0.0.1'];
+    const allowLocal = localHosts.includes(window.location.hostname) &&
+      localHosts.includes(appUrl.hostname) && appUrl.protocol === 'http:';
+    if ((appUrl.protocol !== 'https:' && !allowLocal) || appUrl.username || appUrl.password) {
+      showToast('運転日報の公開URLを確認してください');
+      return;
+    }
+
+    const context = new URLSearchParams(appUrl.hash.slice(1));
+    context.set('kinjiroEmployeeId', String(currentUser.id));
+    context.set('kinjiroToken', currentAuthToken);
+    const department = document.getElementById('work-dept');
+    context.set('department', department ? department.value : '');
+    appUrl.hash = context.toString();
+    window.open(appUrl.href, '_blank', 'noopener,noreferrer');
+  }
+  // drive-diary-script:end
   let otpEmpId = null;         // STEP2で照合する社員番号
   let resendTimer = null;      // 再送クールダウン用
 
